@@ -2,7 +2,7 @@
 
 ## 内容摘要
 
-本笔记系统整理 Apache Paimon 建表基础，覆盖核心表类型、主键合并、Partition/Bucket/File 三级存储组织、Merge Engine、Changelog Producer、Flink Checkpoint、Paimon Snapshot、Compaction、批式与流式读取差异，以及常见配置误区。核心判断是：是否声明主键决定表是 Append Table 还是 Primary Key Table；Merge Engine 决定同一主键如何形成最终逻辑行；Changelog Producer 只决定主键表向流式下游输出变更的方式，不决定表类型，也不改变普通批查询的最终逻辑结果。
+本笔记系统整理 Apache Paimon 建表基础，覆盖核心表类型、主键合并、Partition/Bucket/File 三级存储组织、Merge Engine、Changelog Producer、Flink Checkpoint、Paimon Snapshot、Compaction、批式与流式读取差异，以及常见配置误区。核心判断是：是否声明主键决定表是 Append Table 还是 Primary Key Table；Merge Engine 决定同一主键如何形成最终逻辑行；Changelog Producer 只决定主键表向流式下游输出变更的方式，不决定表类型，也不改变普通批查询的最终逻辑结果。笔记同时说明四种 Changelog 生成策略的旧值来源、文件保存方式及其与 MySQL Binlog 的区别，并给出 Hive 式每日全量快照表迁移到 Paimon 时的分区、主键和覆盖写入设计。
 
 ## 一、Paimon 的基本定位
 
@@ -147,3 +147,267 @@ Checkpoint 间隔影响数据提交可见性、Snapshot 产生频率、元数据
 5. 每个主键只保留首条到达记录：选择 Primary Key Table + `first-row`，并区分到达顺序与事件时间。
 6. 先确定业务语义，再设计主键与不可变分区字段；最后才调整 Bucket、Changelog、Compaction、Snapshot 和文件参数。
 7. 性能参数不应脱离数据规模和指标直接套用；优先采用默认值，通过监控和压测逐项调整。
+
+## 十三、Changelog 的生成、保存与 Binlog 对比
+
+### 13.1 核心定义
+
+Paimon Changelog 是面向流式下游的表变更输出机制。`changelog-producer` 决定变更从哪里获得、何时生成、是否保存为额外的 Changelog 文件，以及下游得到 Upsert 还是完整的 Before/After 变更。
+
+因此，它不只是“文件保存策略”，更准确地说是“变更生成与保存策略”。
+
+完整 Changelog 使用 RowKind 描述一行数据的变化。假设订单金额从 100 更新为 150，完整更新通常表示为：
+
+```text
+-U (order_id=1, amount=100)
++U (order_id=1, amount=150)
+```
+
+`-U` 用于撤回旧值，`+U` 用于加入新值。下游执行分组聚合时，只有拿到旧值才能先撤回 100，再加入 150。
+
+### 13.2 四种 Changelog Producer
+
+#### `none`
+
+默认模式，不额外生成完整 Changelog。下游从 Snapshot 增量中获得类似 Upsert 的最新值：
+
+```text
++U (order_id=1, amount=150)
+```
+
+如果下游计算需要旧值，通常由 Flink Normalize 算子在状态中保存历史值并补齐。其本质是把维护旧值的成本从 Paimon 写入侧转移到下游 Flink 状态。
+
+适用于下游能够按主键覆盖，或者只需要查询最终表状态的场景。
+
+#### `input`
+
+上游输入什么 RowKind，Paimon 就保存什么。例如 Flink CDC 已提供：
+
+```text
+-U (order_id=1, amount=100)
++U (order_id=1, amount=150)
+```
+
+Paimon 将这些输入写入 Changelog 文件，并随 Checkpoint 对应的 Snapshot 一起提交。Paimon 不会补造上游没有提供的旧值；如果上游只有 `+U`，保存后仍然只有 `+U`。
+
+适用于 MySQL CDC、PostgreSQL CDC 或 Flink 状态计算已经产生完整 Before/After 的场景。
+
+#### `lookup`
+
+上游只提供新值时，Paimon 在 Lookup Compaction 中按主键查询历史旧值，再生成完整变化：
+
+```text
+输入：+U (order_id=1, amount=150)
+查旧值：(order_id=1, amount=100)
+
+输出：
+-U (order_id=1, amount=100)
++U (order_id=1, amount=150)
+```
+
+为了避免逐条远程扫描存储，Lookup 会使用内存、本地磁盘缓存、主键索引及批量 Compaction。代价是增加索引查询、缓存空间、磁盘 IO 和 Compaction 压力。
+
+适用于上游缺少旧值，但下游又必须执行撤回聚合的场景。
+
+#### `full-compaction`
+
+比较相邻两次 Full Compaction 得到的完整表状态，按主键计算 INSERT、UPDATE 和 DELETE。例如：
+
+```text
+旧状态：amount=100
+新状态：amount=150
+
+差异：
+-U (order_id=1, amount=100)
++U (order_id=1, amount=150)
+```
+
+这种模式的延迟和读写成本较高，而且中间更新可能被折叠。例如 `100 → 120 → 150` 发生在两次 Full Compaction 之间，下游可能只看到 `100 → 150`，不会看到中间的 120。
+
+适用于能够接受较高延迟和全量压缩成本、关注周期性表状态差异的场景。
+
+### 13.3 Changelog 文件如何发布
+
+Paimon 的流式写入过程可以概括为：
+
+```text
+上游变更
+  → Paimon Writer 写数据文件/Changelog 文件
+  → Flink Checkpoint 成功
+  → Paimon 提交 Snapshot
+  → Snapshot 引用本次新增文件
+  → 流式下游读取新 Snapshot 的增量
+```
+
+因此，下游看见的不是一条独立、永久连续增长的中心日志，而是由 Snapshot 管理并按 Checkpoint 分批发布的变更文件。
+
+### 13.4 与 MySQL Binlog 的区别
+
+两者在消费语义上相似，都可以描述 INSERT、UPDATE 和 DELETE；但底层定位不同：
+
+| 对比维度 | MySQL Binlog | Paimon Changelog |
+| --- | --- | --- |
+| 核心定位 | 数据库事务日志 | 湖仓表的流式变更输出 |
+| 产生时机 | MySQL 事务提交 | Flink Checkpoint、Compaction 与 Snapshot 提交 |
+| 存储形式 | 连续追加的 Binlog 文件 | 数据文件、Changelog 文件及 Snapshot 元数据 |
+| 消费进度 | Binlog Position 或 GTID | Snapshot、Consumer ID 等表级进度 |
+| 旧值来源 | 数据库执行更新时直接掌握 | 上游输入、Lookup 查询或 Full Compaction 比较 |
+| 中间事件 | 通常可以逐条保留 | 可能因合并或 Compaction 被折叠 |
+| 主要用途 | 主从复制、CDC、恢复和审计 | 流式表消费及下游增量计算 |
+
+`input` 最接近保存 Binlog 变更，但准确链路是：
+
+```text
+MySQL Binlog
+  → Flink CDC 解析成 +I/-U/+U/-D
+  → Paimon changelog-producer=input
+  → Changelog 文件
+  → Snapshot 提交
+  → 下游流式读取
+```
+
+Paimon Changelog 主要描述表状态变化，不应被当成永久保留每一条业务事件的原始日志。如果业务要求严格保存每个不可折叠的中间事件，应保留 MySQL Binlog、Kafka/Fluss 日志或另建 Append Table。
+
+### 13.5 选择原则
+
+1. 下游能够按主键覆盖或只查询最终状态：优先使用 `none`。
+2. 上游已经提供完整 CDC：优先使用 `input`。
+3. 上游缺少旧值，但下游必须执行撤回计算：考虑 `lookup`。
+4. 只关心周期性表状态变化且能接受较高延迟：考虑 `full-compaction`。
+5. Changelog 描述的是流式表变化，不天然等于完整业务事件历史。
+
+## 十四、Hive 式每日全量快照表的 Paimon 建模
+
+### 14.1 核心结论
+
+如果目标是保留与 Hive 相同的“每天一个完整业务快照”逻辑，可以采用两种 Paimon 设计：
+
+1. 不需要同日去重或更新：使用无主键 Append Table，只按 `dt` 分区。
+2. 需要同日按用户去重或更新：使用 `(dt, user_id)` 联合主键，同时按 `dt` 分区。
+
+联合主键 `(dt, user_id)` 保证的是“同一天内用户唯一”，不是整张表中 `user_id` 全局唯一。不同日期的同一用户属于两条独立快照记录，应同时保留。
+
+### 14.2 方案一：Append Table + `dt` 分区
+
+```sql
+CREATE TABLE user_snapshot (
+    user_id BIGINT,
+    user_name STRING,
+    status STRING,
+    dt STRING
+) PARTITIONED BY (dt);
+```
+
+因为没有声明 `PRIMARY KEY`，这是一张 Append Table，语义最接近传统 Hive 每日快照表：
+
+- 每个 `dt` 分区保存当天完整数据。
+- 相同 `user_id` 可以出现在不同日期分区。
+- Paimon 不会根据 `user_id` 自动去重。
+- 同一天重复执行 `INSERT INTO` 会继续追加，可能产生重复数据。
+
+每日全量写入应使用覆盖分区：
+
+```sql
+INSERT OVERWRITE user_snapshot
+PARTITION (dt = '2026-09-15')
+SELECT
+    user_id,
+    user_name,
+    status
+FROM source_user;
+```
+
+这种设计适合每天一次性生成全量数据、分区写完后基本不再修改的场景。它不需要维护主键索引和同键版本，写入与维护路径相对简单。
+
+### 14.3 方案二：`(dt, user_id)` 联合主键 + `dt` 分区
+
+```sql
+CREATE TABLE user_snapshot (
+    user_id BIGINT,
+    user_name STRING,
+    status STRING,
+    update_version BIGINT,
+    dt STRING,
+    PRIMARY KEY (dt, user_id) NOT ENFORCED
+) PARTITIONED BY (dt)
+WITH (
+    'merge-engine' = 'deduplicate',
+    'sequence.field' = 'update_version'
+);
+```
+
+此时逻辑主键是 `(dt, user_id)`：
+
+- 同一个 `dt`、同一个 `user_id`：属于同一逻辑记录，可以按 `sequence.field` 更新合并。
+- 不同 `dt`、相同 `user_id`：属于不同主键，作为不同日期的快照同时保留。
+- `dt` 已包含在主键中，不需要为了每日快照维护跨日期的全局主键映射。
+
+这种设计适合当天数据会多次补写、可能存在重复记录，或者需要持续修正当天快照的场景。代价是增加主键索引、LSM 合并和 Compaction 成本；如果每天只覆盖写入一次，主键表的收益通常有限。
+
+### 14.4 为什么有主键仍然需要 `INSERT OVERWRITE`
+
+主键只能合并本次输入中实际出现的用户，不能自动删除新快照中已经不存在的用户。
+
+例如目标分区原有：
+
+```text
+user_id=1
+user_id=2
+user_id=3
+```
+
+重新计算的全量结果只有：
+
+```text
+user_id=1
+user_id=2
+```
+
+如果使用 `INSERT INTO`，`user_id=3` 不会因为新输入中缺失而自动删除；使用 `INSERT OVERWRITE` 替换整个目标分区，最终结果才是真正的当日全量快照。
+
+因此，只要任务语义是“重新生成某日的完整结果”，无论表是否声明主键，都应优先使用分区覆盖写入。
+
+### 14.5 应避免的设计
+
+不建议用下面的结构承载每日全量快照：
+
+```sql
+CREATE TABLE user_snapshot (
+    user_id BIGINT,
+    user_name STRING,
+    status STRING,
+    dt STRING,
+    PRIMARY KEY (user_id) NOT ENFORCED
+) PARTITIONED BY (dt);
+```
+
+该结构表达的是“整张表中每个 `user_id` 只有一个最新状态”，但 `dt` 每天变化。每天写入全量数据时，Paimon 需要把大量用户从旧日期分区迁移到新日期分区，可能产生：
+
+- 大规模跨分区索引查询；
+- 旧分区删除与新分区写入；
+- 较高写放大与 Compaction 压力；
+- 索引初始化、本地内存和磁盘开销；
+- 作业重启恢复时间增长。
+
+每日全量快照强调“保留每一天的独立状态”，全局主键表强调“每个用户只保留当前状态”，两者不应混在一张表中实现。
+
+### 14.6 业务日期快照与 Paimon Snapshot
+
+`dt` 分区表示业务历史日期，例如“2026-09-15 的完整用户状态”；Paimon Snapshot 表示某次表提交版本，一天内可以产生很多 Snapshot。
+
+- `dt`：业务数据维度，用于长期保存和按日查询。
+- Paimon Snapshot：存储系统版本，用于原子提交、增量读取、Time Travel 和文件引用管理。
+
+如果业务要求长期查询任意一天的全量状态，应保留 `dt` 字段或分区，不能只依赖可能过期的 Paimon Snapshot。
+
+### 14.7 推荐选型
+
+| 业务目标 | 推荐设计 |
+| --- | --- |
+| 每天生成一次全量数据，写完不再修改 | Append Table + `dt` 分区 |
+| 当天会多次补写，需要按用户去重或更新 | Primary Key Table，主键为 `(dt, user_id)`，按 `dt` 分区 |
+| 每日全量重跑，必须删除新结果中缺失的数据 | 对目标 `dt` 分区执行 `INSERT OVERWRITE` |
+| 整张表只保存每个用户的当前状态 | Primary Key Table，主键为 `user_id`，不按每日快照日期分区 |
+| 同时需要每日历史和实时最新状态 | 拆分为每日快照表与当前状态主键表 |
+
+最终判断原则是：每日历史表的业务键是 `(dt, user_id)`；当前状态表的业务键才是 `user_id`。先明确要保存“每天的状态”还是“现在的状态”，再决定是否使用主键以及主键是否包含分区字段。
