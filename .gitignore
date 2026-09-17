@@ -1,0 +1,7 @@
+# 本机配置与缓存
+/.obsidian/
+/.smart-env/
+**/.DS_Store
+
+# 凭据笔记
+/密码.md
