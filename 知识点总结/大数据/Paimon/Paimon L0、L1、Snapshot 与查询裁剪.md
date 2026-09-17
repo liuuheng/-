@@ -4,6 +4,9 @@
 
 L0、L1 描述主键数据文件在 LSM 结构中的层级，不是 Snapshot 层级，也通常不是磁盘目录。Snapshot 记录某次提交后哪些文件有效；Compaction 读取多个数据文件，合并相同主键的物理版本，写出新的 L1 及以上文件，再提交新 Snapshot 发布文件替换。
 
+> [!summary] 文章核心内容
+> Paimon 在读取数据前先通过 Snapshot 和 Manifest 确定当前有效文件，再在 Scan 阶段利用文件级 Min/Max、Null Count 和内嵌 File Index 排除不可能命中的文件；进入 Read 阶段后，独立索引还能通过 Bloom Filter、Bitmap、BSI 等继续执行文件级或行级过滤。主键表的 L0 文件可能保存同一主键的多个版本，因此可以安全使用主键条件裁剪，却不能仅凭单个文件的 value 统计随意跳过文件；Compaction 合并版本并写出 L1 及以上文件后，value 裁剪通常更有效。`$files` 系统表可用于检查文件层级、大小、主键范围和列统计是否具备裁剪条件，但实际跳过多少文件仍需结合执行计划和 Scan 指标确认。
+
 ```text
 Compaction：合并数据文件
 File Index：为单个数据文件提供裁剪能力
