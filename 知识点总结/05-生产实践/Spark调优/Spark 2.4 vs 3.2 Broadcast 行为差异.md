@@ -23,7 +23,7 @@
 所以你看到 `DESCRIBE EXTENDED` 里出现了 Statistics，是这个副作用"顺手"写进去的。
 
 ### 为什么没有 Statistics 就不敢自动广播？
-![[images/企业微信截图_1777268757765.png]]
+![[99-images/企业微信截图_1777268757765.png]]
 Spark 2.4 的逻辑比较保守：
 
 - 如果 metastore 里没有 totalSize / numRows，`sizeInBytes` 会直接退化成 `Long.MaxValue`（一个接近无穷大的值）
@@ -117,5 +117,5 @@ sizeInBytes = outputRowSize × rowCount
 ---
 
 来源的地方：cf文档。主要的重点在于 broadcast失效的问题，这个没有遇到过  
-![[images/企业微信截图_17772600392028.png]]
-![[images/企业微信截图_17772600481828.png]]![[images/企业微信截图_17772600766662.png]]![[images/企业微信截图_17772601211799.png]]
+![[99-images/企业微信截图_17772600392028.png]]
+![[99-images/企业微信截图_17772600481828.png]]![[99-images/企业微信截图_17772600766662.png]]![[99-images/企业微信截图_17772601211799.png]]
