@@ -1,8 +1,35 @@
 # Apache Paimon 表模型、存储组织与读取语义
 
-## 内容摘要
+> [!summary] 30 秒结论
+> Paimon 是表存储，不是独立计算引擎。Flink、Spark 等引擎负责计算，Paimon 负责把记录组织成可提交、可追溯、可增量消费的表。Snapshot 通过 Manifest 决定某个版本可见哪些文件；主键表再用 LSM 和 Merge Engine 把同键物理版本合并成逻辑行。表类型、Merge Engine、Changelog Producer 和 Compaction 各自解决不同问题，不能互相替代。
 
-本笔记系统整理 Apache Paimon 建表基础，覆盖核心表类型、主键合并、Partition/Bucket/File 三级存储组织、Merge Engine、Changelog Producer、Flink Checkpoint、Paimon Snapshot、Compaction、批式与流式读取差异，以及常见配置误区。核心判断是：是否声明主键决定表是 Append Table 还是 Primary Key Table；Merge Engine 决定同一主键如何形成最终逻辑行；Changelog Producer 只决定主键表向流式下游输出变更的方式，不决定表类型，也不改变普通批查询的最终逻辑结果。笔记同时说明四种 Changelog 生成策略的旧值来源、文件保存方式及其与 MySQL Binlog 的区别，并给出 Hive 式每日全量快照表迁移到 Paimon 时的分区、主键和覆盖写入设计。
+## 5 分钟心智模型
+
+Paimon 的物理组织可以记成一条关系：`Table → Partition → Bucket → Data File`。Partition 承担粗粒度裁剪和生命周期管理，Bucket 承担写入分布和局部合并，ORC/Parquet 等 Data File 保存实际记录。`schema/` 保存表结构版本，`snapshot/` 发布表版本，`manifest/` 记录数据文件和索引文件的 ADD/DELETE。
+
+写入链路是：上游记录 → Writer Buffer/MemTable → flush 数据文件 → Checkpoint 成功 → Manifest 记录文件变化 → Snapshot 提交后对外可见。主键表的新记录通常先进入 L0，Compaction 再按主键和序列归并文件。Compaction 改写物理布局，原则上不改变同一表状态的逻辑结果。
+
+读取链路是：选定 Snapshot → 读 Manifest List/Manifest → 得到有效文件 → 执行 Partition、Bucket 和 File Index 裁剪 → 读取数据文件。主键表在 Compaction 前可能仍有多个同键版本，Reader 需要 Merge-on-Read；L0 文件越多、主键范围重叠越大，读放大通常越高。
+
+| 配置维度 | 它决定什么 | 不决定什么 |
+| --- | --- | --- |
+| 是否声明主键 | 是 Append Table 还是 Primary Key Table | 下游是否能拿到完整旧值 |
+| `merge-engine` | 同一主键如何形成最终逻辑行 | Changelog 的产生时机 |
+| `changelog-producer` | 主键表如何向流式下游输出变更 | 表类型和普通批查询结果 |
+| Compaction | 何时归并物理文件和同键版本 | 原始业务事件是否被永久保留 |
+
+Snapshot/Manifest 解决“这个版本读哪些文件”，LSM/Compaction 解决“同一主键的多个物理版本如何整理”，Changelog 解决“下游能看到哪些行级变化”。主键表能查出最终状态，不等于它必然能输出完整 `-U/+U`。
+
+### 复用时按这个顺序判断
+
+1. 每条输入是需要永久保留的事件，还是某个业务键的最新状态？这决定 Append Table 或 Primary Key Table。
+2. 业务唯一性是什么？分区字段会不会变？主键不包含分区字段时，要评估 Cross-Partition Upsert 和索引恢复成本。
+3. 同键记录应该保留最新值、更新部分字段、累加还是保留首条？这决定 Merge Engine 和 `sequence.field`。
+4. 下游只需要按主键覆盖，还是必须获得旧值做撤回？先检查上游 `RowKind` 和行镜像，再选 `none`、`input`、`lookup` 或 `full-compaction`。
+5. 性能问题发生在哪一层？用实际的 Snapshot 数、L0 文件数、单文件大小、Compaction 延迟、查询扫描文件数和 Writer 内存验证，不根据文章中的默认值直接调参。
+
+> [!warning] 版本边界
+> 来源文章没有声明 Paimon 版本。Snapshot 字段、参数默认值、Bucket 约束、File Index 和各引擎的读写能力可能随版本变化。建表或调参前，以目标版本官方文档和实际 `SHOW CREATE TABLE` 为准。“Paimon = RocksDB 的 LSM-Tree + Iceberg 的 Snapshot/Manifest”只是认知类比，不表示实现或兼容性等价。
 
 ## 一、Paimon 的基本定位
 
@@ -411,3 +438,17 @@ CREATE TABLE user_snapshot (
 | 同时需要每日历史和实时最新状态 | 拆分为每日快照表与当前状态主键表 |
 
 最终判断原则是：每日历史表的业务键是 `(dt, user_id)`；当前状态表的业务键才是 `user_id`。先明确要保存“每天的状态”还是“现在的状态”，再决定是否使用主键以及主键是否包含分区字段。
+
+## 十五、专题笔记与来源
+
+快照、物理文件与 Compaction：[[Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
+
+流式读取起点与 Changelog：[[Paimon 流式读写中的 Snapshot 与 Changelog]]
+
+LSM 层级、文件统计与查询裁剪：[[Paimon L0、L1、Snapshot 与查询裁剪]]
+
+动态分桶与主键路由：[[Paimon 动态 Bucket 的索引机制与单 Writer 限制]]
+
+File Index 的存储和选型：[[Paimon File Index：存储、读写与选型]]
+
+文章来源：[《Paimon 精讲（一）：10分钟建立完整架构认知，老鸟也能查漏补缺》](https://mp.weixin.qq.com/s/VcO9_aEqneaoJp1Mu5NJtQ)，胖泽的技术笔记，2026-07-22。本笔记保留了文章的架构主线，但对未声明版本的默认值和实现细节保留核验边界。
