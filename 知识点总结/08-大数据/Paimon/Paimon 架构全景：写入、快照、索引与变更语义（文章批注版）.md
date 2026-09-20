@@ -8,7 +8,7 @@
 > 本笔记保留原文的架构主线，批注用于补充对象关系、成立条件和生产边界，不是原文逐字备份。
 
 > [!abstract] 一分钟复习
-> Paimon 是表存储，不是独立的 SQL 计算引擎。Flink、Spark、Trino 等引擎负责解析 SQL 和执行计算，Paimon 负责表的 Schema、文件组织、提交版本、主键合并和增量变更语义。Snapshot 通过 Manifest 决定某个版本可见哪些文件；主键表再通过 LSM、Compaction 和 Merge Engine 把多个物理版本合并成逻辑行。Partition、Bucket、文件统计和 File Index 逐层缩小读取范围。Changelog 描述下游可消费的行级变化，不等于当前表状态，也不天然等于完整业务事件历史。
+> Paimon 是表存储，不是独立的 SQL 计算引擎。Flink、Spark、Trino 等引擎负责解析 SQL 和执行计算，Paimon 负责表的 Schema、文件组织、提交版本、主键合并和增量变更语义。Snapshot 通过 Manifest 决定某个版本可见哪些文件；主键表再通过 LSM、Compaction 和 Merge Engine 把多个物理版本合并成逻辑行。表模型由“保留独立事件还是维护同键状态”决定，与批流读取方式无关。Dynamic Bucket 的同一分区只能由一个 Job 写；Fixed Bucket 支持确定性路由，多 Writer 还需统一 Compaction 和版本顺序。Partition、Bucket、文件统计和 File Index 逐层缩小读取范围。Changelog 描述下游可消费的行级变化，不等于当前表状态，也不天然等于完整业务事件历史。
 
 ## 一、先建立四层心智模型
 
@@ -105,61 +105,339 @@ L0 数据文件可以相互重叠主键范围。文件数增多后，读取需�
 > [!warning] 批注：`lookup` 不是“异步 Compaction 模式”
 > Compaction 何时发生、使用什么策略，与 `changelog-producer=lookup` 是两个配置维度。`lookup` 为了生成旧值需要在 Lookup Compaction 过程中查表内状态，但不能因此把它概括成通用异步 Compaction 开关。
 
-## 七、两套索引不要混在一起
+## 七、三类索引分别解决什么问题
 
-### Global Index
+Paimon 中容易被统称为“索引”的对象至少有三类，它们的作用域不同。
 
-Global Index 解决表级或 Bucket 级问题：
+| 类型 | 作用对象 | 解决的问题 | 检查入口 |
+| --- | --- | --- | --- |
+| 动态 Bucket Hash Index | 主键 Hash 与 Bucket 的映射 | Writer 应把同一主键路由到哪个 Bucket | `$table_indexes` |
+| Deletion Vector / Global Index | 表级行位置或搜索结构 | 标记失效行，或提供独立管理的查询索引 | `$table_indexes` |
+| Data File Index | 单个 Data File 中的列值 | 通过谓词排除文件、Row Group 或 Page | `$file_indexes` |
 
-- 动态 Bucket 中的 Hash Index 维护主键到 Bucket 的路由关系。
-- Deletion Vector 记录数据文件中哪些行已失效，使 Reader 可以直接跳过它们。
+动态 Bucket Hash Index 服务写入路由，不是给 SQL 点查使用的二级索引。Data File Index 服务查询裁剪，不负责主键唯一性，也不改变同键记录的合并结果。
 
-### Data File Index
+### 7.1 Bloom Filter：高基数字段的等值查询
 
-Data File Index 面向单个数据文件的查询裁剪：
+Bloom Filter 适合 `event_id`、`order_id`、`trace_id` 等高基数字段：
 
-- Bloom Filter 服务等值谓词，可判断某值一定不在文件中。
-- Bitmap 适合部分低基数字段的等值过滤。
-- BSI 用于部分数值或日期字段的范围谓词。
+```sql
+SELECT *
+FROM order_events
+WHERE dt = '2026-09-20'
+  AND event_id = 'evt_987654321';
+```
 
-> [!note] 批注：索引存在不等于查询一定使用
-> 索引是否能裁剪取决于 Connector 版本、字段类型、谓词形态、索引覆盖文件和计划下推。`$files` 可以检查文件大小、层级、主键范围和统计信息，但不能单独证明一条 SQL 真实跳过了多少文件。还要结合执行计划、Scan 指标和 `$file_indexes`。
+分区裁剪先排除其他日期；Bloom Filter 再判断剩余文件是否一定不包含目标值。返回“不存在”时可以跳过文件，返回“可能存在”时仍要读取并验证。假阳性只会增加少量扫描，不会造成错误结果。
 
-## 八、Append Table 与 Primary Key Table
+```sql
+'file-index.bloom-filter.columns' = 'event_id,order_id',
+'file-index.bloom-filter.event_id.fpp' = '0.01',
+'file-index.bloom-filter.event_id.items' = '100000'
+```
+
+`items` 估计的是单个 Data File 内的不同值数量，不是整张表的基数。误判率越低，索引通常越大。
+
+### 7.2 Bitmap：枚举字段的等值与集合查询
+
+Bitmap 适合 `status`、`event_type`、`is_deleted` 等取值有限的字段：
+
+```sql
+SELECT *
+FROM order_events
+WHERE dt = '2026-09-20'
+  AND status IN ('PAID', 'SHIPPED');
+```
+
+它为不同取值记录命中行的位置，能够处理等值和集合过滤。给几乎每行都不同的 `event_id` 建 Bitmap 会产生大量值项，通常不如 Bloom Filter 合适。
+
+```sql
+'file-index.bitmap.columns' = 'status,event_type'
+```
+
+### 7.3 Range Bitmap：数值与时间范围查询
+
+Range Bitmap 适合金额、数量、分数和时间范围：
+
+```sql
+SELECT *
+FROM order_events
+WHERE dt = '2026-09-20'
+  AND amount BETWEEN 100.00 AND 500.00
+  AND event_time >= TIMESTAMP '2026-09-20 10:00:00'
+  AND event_time <  TIMESTAMP '2026-09-20 11:00:00';
+```
+
+```sql
+'file-index.range-bitmap.columns' = 'amount,event_time'
+```
+
+旧版 BSI 也用于数值范围过滤，但当前文档已将其标记为废弃，新表应使用 Range Bitmap。
+
+### 7.4 建表、补建与验证
+
+File Index 可以在建表时声明：
+
+```sql
+CREATE TABLE order_events (
+    event_id STRING,
+    order_id BIGINT,
+    status STRING,
+    amount DECIMAL(18, 2),
+    event_time TIMESTAMP(3),
+    dt STRING
+)
+PARTITIONED BY (dt)
+WITH (
+    'bucket' = '-1',
+    'file.format' = 'orc',
+    'file-index.bloom-filter.columns' = 'event_id,order_id',
+    'file-index.bitmap.columns' = 'status',
+    'file-index.range-bitmap.columns' = 'amount,event_time'
+);
+```
+
+也可以给已有表增加配置：
+
+```sql
+ALTER TABLE order_events SET (
+    'file-index.bloom-filter.columns' = 'event_id,order_id',
+    'file-index.bitmap.columns' = 'status',
+    'file-index.range-bitmap.columns' = 'amount,event_time'
+);
+```
+
+`ALTER TABLE` 只影响后续生成的文件。历史 Data File 需要单独补建索引：
+
+```sql
+-- 全表补建
+CALL sys.rewrite_file_index(`table` => 'dwd.order_events');
+
+-- 大表先按分区灰度补建
+CALL sys.rewrite_file_index(
+    `table` => 'dwd.order_events',
+    partitions => 'dt=2026-09-20'
+);
+```
+
+`rewrite_file_index` 会读取目标字段并生成索引，不重写 Data File 本身，但仍有历史数据扫描成本。可用系统表检查覆盖范围：
+
+```sql
+SELECT
+    column_name,
+    index_type,
+    storage_type,
+    COUNT(DISTINCT file_path) AS indexed_file_count,
+    SUM(index_size_in_bytes) AS index_bytes
+FROM `order_events$file_indexes`
+GROUP BY column_name, index_type, storage_type
+ORDER BY column_name, index_type, storage_type;
+```
+
+`$file_indexes` 中存在记录只证明索引已生成。查询是否实际利用索引，还要检查谓词是否下推、执行计划、扫描文件数和 Scan 指标。主键表也支持 File Index；固定 Bucket 已能按完整 Bucket Key 裁剪时，再给相同主键字段配置 Bloom Filter 可能收益有限，File Index 更适合非主键过滤列。
+
+## 八、表模型由记录语义决定，不由批流模式决定
+
+Append Table 和 Primary Key Table 都支持批式、流式读写。判断表模型时，应检查同一业务键的新记录是否修改旧状态。
 
 | 维度 | Append Table | Primary Key Table |
 | --- | --- | --- |
-| 判定方式 | 未声明主键 | 声明 `PRIMARY KEY ... NOT ENFORCED` |
-| 输入语义 | 每条输入都是需要保留的事实 | 同一主键的输入用于形成最终状态 |
-| 同键处理 | 不自动去重 | 由 Merge Engine 决定 |
-| 适用场景 | 日志、埋点、审计事件、不变事实 | CDC 当前状态、订单最新状态、实时宽表 |
-| 主要代价 | 数据量持续增长 | 同键归并、索引、Compaction 和可能的读放大 |
+| 判定方式 | 不声明主键 | 声明 `PRIMARY KEY ... NOT ENFORCED` |
+| 输入语义 | 每条输入都是独立且需要保留的事件 | 同一主键的输入共同形成当前逻辑行 |
+| 同键处理 | 不去重，重复写入会保留重复记录 | 由 Merge Engine 决定覆盖、部分更新或聚合 |
+| 典型场景 | 日志、埋点、审计流水、CDC 原始事件 | 订单当前状态、维表、CDC Upsert、实时宽表 |
 
-Merge Engine 决定主键表中同一主键如何形成逻辑行：
+数据来自 CDC 不等于必须使用主键表。保存 CDC 原始事件历史时可以使用 Append Table；按业务键维护最新状态时才需要 Primary Key Table。下游是否流式读取也不决定表模型：实时日志流仍然是 Append 语义，批量查询订单最新状态仍然是主键语义。
 
-- `deduplicate`：按序列或到达规则保留最新记录。
-- `partial-update`：同一主键的不同输入更新不同字段。
-- `aggregation`：对值字段执行 `sum`、`max` 等聚合。
-- `first-row`：保留第一条到达记录。
+### 8.1 Append 表的两种 Bucket 布局
 
-> [!warning] 批注：先定业务语义，再调物理参数
-> 如果业务要求保留每一次状态变化，用主键表只保留最终状态会破坏语义；如果业务只要当前状态，用 Append Table 会把去重和合并成本推给每一次查询。Bucket 数、文件大小和 Compaction 参数都无法弥补表语义选错。
+Append 表的 `bucket=-1` 表示 Bucket-Unaware，不是主键表的动态 Bucket。物理目录可以出现 `bucket-0`，但写入并行度不被一个固定 Bucket 限制。
 
-## 九、Changelog 的选择标准
+```sql
+CREATE TABLE event_log (
+    user_id BIGINT,
+    event_type STRING,
+    event_time TIMESTAMP(3),
+    dt STRING
+)
+PARTITIONED BY (dt)
+WITH (
+    'bucket' = '-1',
+    'file.format' = 'orc'
+);
+```
 
-Changelog Producer 决定主键表如何向流式下游输出变化，不决定表是 Append Table 还是 Primary Key Table，也不应改变普通批查询在同一 Snapshot 上的逻辑结果。
+Partition、Bucket 和文件格式是三个独立维度：`dt` 负责粗粒度裁剪和生命周期；`bucket=-1` 决定不按固定 Bucket Key 分布；ORC/Parquet 决定文件编码，不能由“日志表”标签直接推出。
 
-| 模式 | 旧值来源 | 适用前提 | 主要代价/边界 |
+需要按字段确定性路由时，可以创建固定 Bucket Append 表：
+
+```sql
+WITH (
+    'bucket' = '16',
+    'bucket-key' = 'user_id'
+)
+```
+
+相同 `user_id` 在同一分区进入同一个 Bucket，但不会去重。完整 Bucket Key 上的 `=` 或 `IN` 谓词可以计算候选 Bucket；范围谓词通常不能通过 Hash Bucket 直接裁剪。
+
+### 8.2 主键表的 Merge Engine
+
+| Merge Engine | 输入含义 | 结果 |
+| --- | --- | --- |
+| `deduplicate` | 每条记录是该主键的新完整状态 | 按序列或到达规则保留较新记录 |
+| `partial-update` | 每条记录只更新部分字段 | 非 NULL 字段默认覆盖，NULL 默认表示不更新 |
+| `aggregation` | 每条记录是增量贡献 | 按字段聚合函数累加或归并 |
+| `first-row` | 只接受首条记录 | 已存在主键的后续输入被忽略 |
+
+`aggregation` 只适用于增量值。例如输入 `+3`、`+5` 才能用 `sum` 得到 `8`；如果输入 `5` 表示“当前总量是 5”，继续求和会重复累计。
+
+`partial-update` 适合订单流和物流流分别更新宽表字段。多个独立流有各自的乱序版本时，应使用 Sequence Group 分别保护字段，不能让一个流的版本号阻断另一个流的更新。多个独立 Job 写同一分区时，还必须满足 Bucket 并发约束，不能因为使用了 `partial-update` 就忽略写入拓扑。
+
+## 九、Changelog Producer 的选择标准
+
+Changelog Producer 决定主键表向流式下游暴露什么变化，不决定表是否为主键表，也不改变同一 Snapshot 上普通批查询的逻辑结果。
+
+| 模式 | 旧值来源 | 适用前提 | 主要代价或边界 |
 | --- | --- | --- | --- |
-| `none` | 不额外生成完整旧值 | 下游可以按主键覆盖，或由 Flink Normalize 维护旧值 | 需要撤回时，成本可能转移到下游状态 |
-| `input` | Writer 收到的上游 changelog | 上游已提供完整且可直接作为表状态变化的新旧行 | 不会补造上游缺失的旧值 |
-| `lookup` | 查询 Paimon 表内旧状态 | 输入缺少旧值，下游又必须获得撤回 | 增加索引、缓存、本地磁盘和 Compaction 成本 |
-| `full-compaction` | 对比两次 Full Compaction 后的表状态 | 可接受更高延迟，只关心周期性状态差异 | 中间多次更新可能被折叠，且 Full Compaction 写放大较高 |
+| `none` | 不额外生成完整旧值 | 下游按主键覆盖，或由 Flink Normalize 维护旧值 | 需要撤回时，成本可能转移到下游状态 |
+| `input` | Writer 实际收到的 Changelog | 上游已有完整且可直接作为目标表状态变化的新旧行 | 不会补造缺失旧值，也不会把局部字段补成完整行 |
+| `lookup` | 查询 Paimon 中受影响主键的旧状态 | 输入缺少旧值，下游必须获得完整撤回与更新 | 增加 Lookup、缓存、本地磁盘和 Compaction 成本 |
+| `full-compaction` | 比较相邻两次 Full Compaction 的完整表状态 | 可接受更高延迟，只关心周期性状态差异 | 中间更新可能折叠，Full Compaction 写放大较高 |
 
-> [!note] 批注：判断 `input` 还是 `lookup` 时，不要只看“上游是 CDC”
-> 要检查 Writer 实际收到的 `RowKind`、字段是否完整、是否有真实旧值，以及输入是否已等价于 Merge Engine 产生的最终逻辑行。`partial-update` 的字段增量、`aggregation` 的聚合贡献值即使携带完整 `RowKind`，也可能需要表内旧状态才能生成正确下游变更。
+订单从“待支付”更新到“已支付”时，完整 Changelog 应为：
 
-## 十、时间旅行与长期历史
+```text
+-U  order_id=1, status=待支付
++U  order_id=1, status=已支付
+```
+
+上游 CDC 已经提供这两条完整记录，且 Writer 收到的记录等价于目标表最终逻辑行时，使用 `input` 可以直接保存输入 Changelog。若上游只有 `+U 已支付`，而下游聚合需要撤回“待支付”，则使用 `lookup` 查询旧状态并生成完整 Before/After。
+
+`partial-update` 和 `aggregation` 的输入往往是局部字段或增量贡献，并不等于合并后的完整行。即使输入带有完整 `RowKind`，下游需要完整合并结果时通常仍要使用 `lookup`。选择时应同时检查行镜像、变更种类和 Merge Engine 语义，不能只看“上游是 CDC”或“下游是实时任务”。
+
+## 十、Partition、Fixed Bucket 与 Dynamic Bucket
+
+Partition 和 Bucket 处于不同层次：Partition 是业务字段形成的目录和生命周期边界；Bucket 是每个分区内部的数据分片。Fixed/Dynamic 描述的是 Bucket，不是分区。
+
+### 10.1 Fixed Bucket
+
+```sql
+WITH (
+    'bucket' = '16'
+)
+```
+
+每个分区固定使用 16 个 Bucket，同一 Bucket Key 通过确定性 Hash 路由。Fixed Bucket 适用于：
+
+- 多个 Job 可能写入同一个分区；
+- 查询经常按完整 Bucket Key 做 `=` 或 `IN` 过滤；
+- Spark Bucket Join 需要兼容的分布；
+- 能根据单分区规模、并行度和数据倾斜规划 Bucket 数。
+
+“数据量稳定”只表示 Bucket 数比较容易提前规划，不是 Fixed Bucket 的定义。Bucket 太少会限制并行并形成热点，太多会产生小文件和元数据压力。
+
+### 10.2 Dynamic Bucket
+
+主键表省略 `bucket` 或设置 `bucket=-1` 时使用动态 Bucket。Paimon 根据数据增长增加 Bucket，并维护主键 Hash 到 Bucket 的映射。
+
+主键包含全部分区字段时，更新不会跨分区，属于普通动态 Bucket；主键缺少分区字段且需要跨分区 Upsert 时，还要维护主键到 Partition 与 Bucket 的映射，启动扫描和索引成本更高。
+
+动态 Bucket 的并发边界是：同一分区只能由一个写入 Job 负责。主键包含分区字段只消除了跨分区更新，没有协调多个 Job 的动态 Bucket 分配。两个 Job 各自维护索引时，同一主键可能被分配到不同 Bucket，Snapshot 的乐观并发提交不能修复这种映射分歧。
+
+多个 Job 可以并发写不同分区，但分区归属必须在迟到数据、补数和重跑期间仍然互斥。例如流任务写当前分区、批任务覆盖历史分区是可行拓扑；两个任务都可能写当天分区则不满足约束。
+
+### 10.3 Fixed Bucket 的多 Writer 边界
+
+Fixed Bucket 消除了动态分配不一致：相同 Bucket Key 在所有 Job 中都会计算到同一个 Bucket。因此，多 Job 可以写同一分区，但仍要处理三类问题：
+
+1. 多个 Writer 同时 Compaction 相同文件会产生文件冲突和作业恢复。
+2. 多个 Job 更新同一主键时，需要 `sequence.field`、Sequence Group 或明确的 Snapshot Ordering 规则决定新旧。
+3. 所有 Writer 必须使用兼容的 Catalog 提交与共享锁配置，尤其不能把对象存储 rename 当成 HDFS 原子 rename。
+
+多个来源必须写动态 Bucket 同一分区时，应先在 Flink 中 `UNION ALL` 成一个写入 Job；如果必须保留多个独立 Job，应改用 Fixed Bucket，并将 Compaction 交给唯一的独立作业。
+
+## 十一、独立 Compaction Job
+
+多个 Writer 写固定 Bucket 表时，可以让写入 Job 只产出文件和提交 Snapshot，由第三个 Flink Job 统一 Compaction。
+
+目标表配置：
+
+```sql
+ALTER TABLE dwd.orders SET (
+    'write-only' = 'true'
+);
+```
+
+`write-only=true` 关闭 Writer 内的 Compaction 和 Snapshot 过期维护。已经运行的写入 Job 通常需要重启，才能使用新的表选项。
+
+Flink 1.19+ 可以在独立 SQL Client 或 SQL Gateway Session 中提交持续运行的 Compaction：
+
+```sql
+USE CATALOG my_catalog;
+
+SET 'execution.runtime-mode' = 'streaming';
+SET 'execution.checkpointing.interval' = '1 min';
+SET 'pipeline.name' = 'orders-dedicated-compaction';
+
+CALL sys.compact(
+    `table` => 'dwd.orders',
+    options => 'sink.parallelism=8'
+);
+```
+
+SQL Procedure 需要 Flink 1.18+；Flink 1.18 通常使用对应版本的位置参数签名。生产环境也可以通过匹配当前 Paimon/Flink 版本的 Action Jar 提交：
+
+```bash
+$FLINK_HOME/bin/flink run -d \
+  -Dexecution.runtime-mode=streaming \
+  -Dpipeline.name=orders-dedicated-compaction \
+  /opt/paimon/paimon-flink-action-<paimon-version>.jar \
+  compact \
+  --warehouse hdfs:///warehouse/paimon \
+  --database dwd \
+  --table orders \
+  --table_conf sink.parallelism=8
+```
+
+同一张表、同一组分区只保留一个 Compaction Job。`write-only` 加独立 Compaction 可以消除多个 Writer 争抢 Compaction 输入文件的问题，但不能解除动态 Bucket 对同分区单 Writer 的限制。
+
+### 11.1 一个 Job 批量维护多张表
+
+`compact_database` 可以在一个 Flink Job 中维护一批表：
+
+```sql
+SET 'execution.runtime-mode' = 'streaming';
+SET 'pipeline.name' = 'paimon-dwd-compaction';
+
+CALL sys.compact_database(
+    including_databases => 'dwd',
+    mode => 'combined',
+    including_tables => 'fact_.*|dim_.*',
+    excluding_tables => 'fact_tmp_.*',
+    table_options => 'sink.parallelism=8,continuous.discovery-interval=30s'
+);
+```
+
+`combined` 使用一个组合 Sink，能够自动发现新表，适合大量中小表；`divided` 为每张表创建独立 Sink，隔离更强，但 Job Graph 更大，新增表通常需要重启。写入量大、延迟要求高或故障影响面需要隔离的表，应使用独立 Compaction Job，不要全部放进一个 `combined` 作业。
+
+批模式适合定时执行一次：
+
+```bash
+$FLINK_HOME/bin/flink run -d \
+  -Dexecution.runtime-mode=batch \
+  /opt/paimon/paimon-flink-action-<paimon-version>.jar \
+  compact_database \
+  --warehouse hdfs:///warehouse/paimon \
+  --including_databases dwd \
+  --including_tables 'dwd\.fact_.*|dwd\.dim_.*' \
+  --mode combined \
+  --compact_strategy full \
+  --table_conf sink.parallelism=8
+```
+
+持续流式维护一般使用 `minor` 策略；`full` 只用于批模式。不要让单表 Compaction Job 与 `compact_database` 同时覆盖同一张表。
+
+## 十二、时间旅行与长期历史
 
 查询某个历史时间点时，计算引擎把目标 Snapshot ID、时间戳或 Tag 交给 Paimon Reader。Reader 选定对应 Snapshot，再读取它引用的 Manifest 和 Data File。
 
@@ -198,26 +476,29 @@ WHERE dt = '2026-09-19';
 > [!warning] 批注：时间旅行不是无限期历史
 > 时间旅行能查多远，取决于 Snapshot 及其引用文件保留了多久。普通 Snapshot 适合滚动保留近期细粒度版本；月末、关账、发布前等少量重要版本应用 Tag 长期固定。如果需要永久保存每一次业务变化，应另建 Append 事件表、CDC 历史表或 SCD2，不应只依赖 Snapshot。
 
-## 十一、建表时的复用顺序
+## 十三、建表决策顺序
 
-1. **定义记录语义**：每条输入是必须保留的事件，还是某个业务键的当前状态？
+1. **定义记录语义**：每条输入是独立事件，还是业务键的当前状态？前者选 Append Table，后者选 Primary Key Table，不能用下游是否流式处理代替这个判断。
 2. **定义业务唯一性**：主键是什么？分区字段是否会变？主键不含分区字段时是否允许跨分区更新？
-3. **定义同键合并**：保留最新记录、字段部分更新、聚合累加，还是保留首条？
-4. **定义下游变更需求**：只要最新值，还是必须拿到完整 `-U/+U`？旧值应该来自上游、Paimon Lookup 还是周期性状态对比？
-5. **设计物理分布**：根据单分区数据量、写入并行度、查询谓词和数据倾斜选分区、Bucket 和文件目标大小。
-6. **根据运行指标调参**：检查 L0 文件数、单文件大小、Compaction 延迟、扫描文件数、Writer 内存、Checkpoint 和下游 Lag，再决定是否改参数。
+3. **定义同键合并**：完整状态覆盖、字段部分更新、增量聚合，还是只保留首条？
+4. **定义下游变更契约**：只需 Upsert，还是必须拿到完整 `-U/+U`？旧值来自上游、Paimon Lookup 还是 Full Compaction 对比？
+5. **确认写入拓扑**：同一分区有几个独立 Job？Dynamic Bucket 只能单 Job，Fixed Bucket 的多 Writer 需要统一 Compaction 与顺序规则。
+6. **设计物理分布**：根据分区生命周期、单分区数据量、查询谓词、并行度和倾斜选择 Partition、Bucket 与文件大小。
+7. **按查询补充索引**：依次利用 Partition Pruning、Bucket Pruning、文件统计和 File Index，不给低选择性或重复能力的字段盲目建索引。
+8. **根据运行指标调参**：检查 L0 文件数、单文件大小、Compaction 积压、扫描文件数、Writer 内存、Checkpoint 和下游 Lag。
 
-## 十二、原文结论的使用边界
+## 十四、原文结论的使用边界
 
 > [!warning] 原文未声明 Paimon 版本
 > Snapshot 字段、参数默认值、Bucket 约束、File Index 可用性和各引擎的 SQL 能力可能随版本变化。建表或调参前，以目标版本官方文档、实际 `SHOW CREATE TABLE` 和运行指标为准。
 
 - “Paimon = RocksDB 的 LSM-Tree + Iceberg 的 Snapshot/Manifest”适合建立粗粒度心智模型，不表示三者在实现、文件格式或兼容性上等价。
-- `lookup` 不是所有 CDC 的固定选项；上游已提供完整且最终语义正确的 changelog 时，`input` 通常更直接。
+- `lookup` 不是所有 CDC 的固定选项；上游已提供完整且最终语义正确的 Changelog 时，`input` 通常更直接。
+- `bucket=-1` 在 Append 表中表示 Bucket-Unaware，在主键表中表示 Dynamic Bucket，不能混用两套并发结论。
 - 存储上的原子发布不能一律概括为“依赖 rename”；文件系统、对象存储和 Catalog-managed 模式的提交机制可以不同。
 - 不要把文章里的文件大小、缓冲区、Snapshot 保留数等默认值直接带入生产。版本、数据量、并行度和 SLA 都会改变结论。
 
-## 十三、问题定位速查
+## 十五、问题定位速查
 
 | 现象 | 先看什么 | 不要立即下的结论 |
 | --- | --- | --- |
@@ -225,9 +506,23 @@ WHERE dt = '2026-09-19';
 | 主键表查询慢 | L0 文件数、主键范围重叠、Compaction 延迟、裁剪效果 | 只要增加 Bucket 数就能解决 |
 | 时间旅行查不到历史 | `$snapshots`、`$tags`、保留参数和目标时区 | `dt` 分区存在就一定有当时的系统版本 |
 | 下游没有 `UPDATE_BEFORE` | Sink 实际 `RowKind`、`changelog-producer`、Merge Engine | 主键表天然产生完整 Before/After |
-| 动态 Bucket 恢复慢 | IndexBootstrap 扫描范围、主键规模、本地索引和并行度 | `bootstrap-parallelism` 能消除总扫描量 |
+| 动态 Bucket 多 Job 后出现重复键 | 是否写到同一分区、各 Job 的路由索引、Bucket 分布 | 主键包含分区字段就支持同分区多 Writer |
+| 独立 Compaction 仍频繁冲突 | 是否存在重叠 Compactor、Writer 是否仍执行 Compaction | `write-only=true` 能解决所有并发问题 |
+| File Index 没有改善查询 | `$file_indexes` 覆盖率、谓词下推、计划和 Scan 指标 | 建表选项存在就代表查询已使用索引 |
 
-## 十四、相关笔记
+## 十六、官方文档入口
+
+- [Changelog Producer](https://paimon.apache.org/docs/master/primary-key-table/changelog-producer/)
+- [Partial Update](https://paimon.apache.org/docs/master/primary-key-table/merge-engine/partial-update/)
+- [Append Table](https://paimon.apache.org/docs/master/append-table/)
+- [Bucketed Append](https://paimon.apache.org/docs/master/append-table/bucketed/)
+- [Concurrency Control](https://paimon.apache.org/docs/master/concepts/concurrency-control/)
+- [Dedicated Compaction](https://paimon.apache.org/docs/master/maintenance/dedicated-compaction/)
+- [Flink Compaction Procedures](https://paimon.apache.org/docs/master/flink/procedures/compaction/)
+- [File Index](https://paimon.apache.org/docs/master/concepts/spec/fileindex/)
+- [System Tables](https://paimon.apache.org/docs/master/concepts/system-tables/)
+
+## 十七、相关笔记
 
 - [[Apache Paimon 表模型、存储组织与读取语义]]
 - [[Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
