@@ -1,9 +1,6 @@
--- Paimon 流式写入与 Checkpoint / Snapshot 实验
--- 这是持续运行的实验。提交后请到 Flink Web UI 观察，再手动取消作业。
--- 重跑前必须先确认并取消旧 streaming_events Writer，
--- 不要让旧作业与新作业同时写入同一表路径。
-
--- Flink 流式写入 Paimon 时，数据不是到一条就立刻成为表的可见数据，而是以 Checkpoint 为提交边界；Checkpoint 成功后，Paimon 才提交一个新的 Snapshot，使这一批数据原子可见。
+-- 实验 05：流式 Writer、Checkpoint 与 Snapshot 提交
+-- 这是持续运行的作业。提交前先确认旧 streaming_events Writer 已取消。
+-- 问题：流入算子的记录何时成为其他读者可见的 Paimon 数据？
 
 SET 'execution.runtime-mode' = 'streaming';
 SET 'execution.checkpointing.interval' = '10s';
@@ -21,8 +18,9 @@ USE CATALOG paimon_lab_catalog;
 CREATE DATABASE IF NOT EXISTS paimon_lab;
 USE paimon_lab;
 
+-- 只有在确认不存在旧 Writer 时才能重建此表。
+-- 旧作业若仍在运行，DROP/重建后它可能继续向同一路径写入，形成两个 Writer 竞争。
 DROP TABLE IF EXISTS streaming_events;
-
 CREATE TABLE streaming_events (
   event_id BIGINT,
   user_id BIGINT,
@@ -41,8 +39,9 @@ CREATE TABLE streaming_events (
 USE CATALOG default_catalog;
 USE default_database;
 
-DROP TABLE IF EXISTS paimon_lab_datagen;
+-- DataGen 是临时输入源，放在 SQL Client 的默认 Catalog；Paimon 表才是持久化结果。
 
+DROP TABLE IF EXISTS paimon_lab_datagen;
 CREATE TABLE paimon_lab_datagen (
   event_id BIGINT,
   user_id BIGINT,
@@ -50,8 +49,7 @@ CREATE TABLE paimon_lab_datagen (
 ) WITH (
   'connector' = 'datagen',
   'rows-per-second' = '2',
-  -- 使用 random 避免 Flink 1.18 DataGen SequenceGenerator 为超大范围
-  -- 初始化内部队列而耗尽当前 TaskManager 堆内存。
+  -- random 避免 Flink 1.18 SequenceGenerator 为超大范围维护过多状态。
   'fields.event_id.kind' = 'random',
   'fields.event_id.min' = '1',
   'fields.event_id.max' = '100000',
@@ -63,8 +61,12 @@ CREATE TABLE paimon_lab_datagen (
   'fields.amount.max' = '1000'
 );
 
--- 该语句会提交一个持续运行的 Flink Job。
--- 每次成功 Checkpoint 后，Paimon 才会发布新的可见 Snapshot。
+-- 该语句持续运行。每次成功 Checkpoint 才发布一个原子可见的 Snapshot。
+-- Flink 流式写入 Paimon 时，数据不是到一条就立刻成为表的可见数据，而是以 Checkpoint 为提交边界；
+-- Checkpoint 成功后，Paimon 才提交一个新的 Snapshot，使这一批数据原子可见。
+-- Checkpoint ID 与 Snapshot ID 分属 Flink 运行时和 Paimon 表版本，不能按编号直接等同。
+-- random event_id 会重复，因此 deduplicate 逻辑行数可能小于文件物理记录数。
+-- 白话理解：记录先进入暂存区，Checkpoint 成功像“盖章发布”；没盖章前，另一个 SQL Client 看不到。
 INSERT INTO paimon_lab_catalog.paimon_lab.streaming_events
 SELECT
   event_id,
