@@ -17,3 +17,8 @@ DROP TABLE IF EXISTS pk_orders;
 DROP TABLE IF EXISTS partial_profiles;
 DROP TABLE IF EXISTS service_metrics;
 DROP TABLE IF EXISTS streaming_events;
+DROP TABLE IF EXISTS first_seen_users;
+DROP TABLE IF EXISTS profile_sequence_groups;
+DROP TABLE IF EXISTS mutable_orders;
+DROP TABLE IF EXISTS daily_sales;
+DROP TABLE IF EXISTS versioned_products;

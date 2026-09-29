@@ -54,6 +54,9 @@ FROM append_events;
 -- ============================================================
 -- 实验 2：主键表 + sequence.field 处理乱序更新
 -- 第一个 INSERT 形成 Snapshot 1；第二个 INSERT 形成 Snapshot 2。
+-- merge-engine 是 Paimon 主键表的概念
+-- 不定义主键时，Paimon 默认是追加表
+-- sequence.field 的作用是：同主键出现多条记录时，sequence 字段值更大的那条会被当作“最新状态”保留下来
 -- ============================================================
 DROP TABLE IF EXISTS pk_orders;
 
@@ -110,6 +113,7 @@ SELECT
     THEN 'PASS' ELSE 'FAIL'
   END AS check_result
 FROM pk_orders /*+ OPTIONS('scan.snapshot-id' = '1') */;
+
 
 -- ============================================================
 -- 实验 3：partial-update 将不同来源的非空字段合并

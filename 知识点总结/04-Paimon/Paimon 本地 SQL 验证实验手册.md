@@ -20,6 +20,9 @@
 - `实验/02-paimon-streaming-checkpoint.sql`：流式写入、Checkpoint 与 Snapshot。
 - `实验/03-paimon-cleanup.sql`：逐表清理本套实验数据。
 - `实验/04-paimon-streaming-verify.sql`：从独立批查询会话验证流式可见数据和 Snapshot。
+- `实验/05-paimon-merge-engine-advanced.sql`：`first-row` 与 `partial-update sequence-group`。
+- `实验/06-paimon-dml-overwrite.sql`：批量 `UPDATE`、`DELETE`、Audit Log 与动态/静态分区覆盖。
+- `实验/07-paimon-tag-incremental.sql`：Tag、按 Tag/快照时间旅行、增量扫描与 Audit Log。
 
 部署到本地集群后，对应容器内目录为：
 
@@ -52,7 +55,52 @@ docker exec jobmanager \
 
 本实验的 Append Table 使用固定桶，因此同时设置了 `bucket = 2` 和 `bucket-key = event_id`。在 Paimon 1.3.1 中，固定桶 Append Table 不能只设置正数 `bucket` 而省略 `bucket-key`。
 
-## 二、巡检 Paimon 元数据
+## 二、运行高级表模型实验
+
+```bash
+docker exec jobmanager \
+  /opt/flink/bin/sql-client.sh \
+  -f /opt/flink/sql/paimon-lab/05-paimon-merge-engine-advanced.sql
+```
+
+该脚本补充两个容易被普通 Upsert 表掩盖的 Paimon 语义：
+
+1. `merge-engine = first-row` 保留同一主键最先到达的数据；它与默认 `deduplicate` 的后到覆盖先到相反，不能同时配置 `sequence.field`。
+2. `fields.<sequence-field>.sequence-group` 为 `partial-update` 的不同字段组分别维护版本顺序。画像流的旧版本不会回滚姓名和城市，同时不妨碍更高版本的积分流更新积分。
+
+检查项 `07_first_row_keeps_earliest_arrival` 和 `08_partial_update_sequence_groups` 应返回 `PASS`。
+
+## 三、运行批量 DML 与分区覆盖实验
+
+```bash
+docker exec jobmanager \
+  /opt/flink/bin/sql-client.sh \
+  -f /opt/flink/sql/paimon-lab/06-paimon-dml-overwrite.sql
+```
+
+这组 SQL 展示三种特殊边界：
+
+- `UPDATE`、`DELETE` 只能在批模式执行；`UPDATE` 不能修改主键，且 Merge Engine 必须支持相应变更语义。
+- `$audit_log` 在业务字段之前增加 `rowkind`，用于审计实际产生的 `+I`、`-U`、`+U`、`-D`。默认 `changelog-producer = none` 不保证提供 UPDATE 的旧值 `-U`；普通批查询也不会把删除记录作为结果行返回。
+- `INSERT OVERWRITE` 对分区表默认使用动态分区覆盖，只替换输入中实际出现的分区。通过 `/*+ OPTIONS('dynamic-partition-overwrite' = 'false') */` 可只对当前语句切换为静态覆盖；配合空结果可清空指定分区。
+
+检查项 `09_batch_update_delete`、`10_dynamic_partition_overwrite`、`11_static_partition_purge` 应返回 `PASS`。
+
+## 四、运行 Tag 与增量读取实验
+
+```bash
+docker exec jobmanager \
+  /opt/flink/bin/sql-client.sh \
+  -f /opt/flink/sql/paimon-lab/07-paimon-tag-incremental.sql
+```
+
+`CALL sys.create_tag` 给当前 Snapshot 建立长期可读的名字。`scan.tag-name` 和 `scan.snapshot-id` 读取的是该版本的完整表状态；`incremental-between = start,end` 读取的是 `(start, end]` 之间的变化，两者不能混为一类查询。
+
+脚本同时查询 `$tags` 查看 Tag 与 Snapshot 的绑定，并用 `$audit_log` 展开增量的 RowKind。检查项 `12_latest_snapshot`、`13_read_by_tag` 应返回 `PASS`。
+
+以上三个进阶脚本已按 Paimon 1.3 文档核对语法，但尚未在当前本地集群执行。若本地 `1.3.1` 与官网当前 `1.3.2` 补丁版本存在行为差异，以实际 SQL Client 报错和连接器版本为准。
+
+## 五、巡检 Paimon 元数据
 
 ```bash
 docker exec jobmanager \
@@ -69,7 +117,7 @@ docker exec jobmanager \
 
 `$options` 只展示显式设置的参数。没有出现的参数并不代表不存在，而是使用当前 Paimon 版本的默认值。
 
-## 三、观察流式 Checkpoint 与 Snapshot
+## 六、观察流式 Checkpoint 与 Snapshot
 
 重跑本实验前，先用 `flink list -r` 确认不存在旧的 `streaming_events` 写入作业；如果存在，必须先取消。否则脚本重建表后，旧 Writer 和新 Writer 可能同时操作同一路径。
 
@@ -104,7 +152,7 @@ docker exec jobmanager /opt/flink/bin/flink list -r
 docker exec jobmanager /opt/flink/bin/flink cancel <JobID>
 ```
 
-## 四、本地实测结果（2026-09-27）
+## 七、本地实测结果（2026-09-27）
 
 - 批处理脚本的 6 个断言全部返回 `PASS`。
 - `pk_orders` 最终逻辑行数为 2，最新 Snapshot 中物理 `total_record_count` 为 3，验证了主键表“物理记录不等于逻辑最终状态”。
@@ -112,7 +160,7 @@ docker exec jobmanager /opt/flink/bin/flink cancel <JobID>
 - 批量读在某一时刻看到 190 行已提交数据；`$snapshots` 同时显示后续 APPEND 已提交到 210 条物理记录，中间还有 COMPACT 提交。这个短暂差异是持续写入期间两个查询的取样时刻不同，不是数据丢失。
 - 验证结束后已取消 DataGen 作业；JobManager、两个 TaskManager 和 MinIO 均保持运行，实验表数据保留。
 
-## 五、清理实验数据
+## 八、清理实验数据
 
 确认流式实验作业已经停止，再执行：
 
@@ -122,23 +170,31 @@ docker exec jobmanager \
   -f /opt/flink/sql/paimon-lab/03-paimon-cleanup.sql
 ```
 
-该脚本只逐个删除本套实验创建的 5 张 Paimon 表，不会删除 `demo.dwd_withdraw`。它不使用 `CASCADE`，并保留 `paimon_lab` 数据库本身；你之后加入的其他对象也不会被清理。
+该脚本只逐个删除本套实验创建的 10 张 Paimon 表，不会删除 `demo.dwd_withdraw`。它不使用 `CASCADE`，并保留 `paimon_lab` 数据库本身；你之后加入的其他对象也不会被清理。
 
-## 六、建议你独立完成的验证题
+## 九、建议你独立完成的验证题
 
 1. 删除 `pk_orders` 的 `sequence.field` 后重新制造乱序数据，结果是否还稳定？为什么？
 2. 对同一主键重复写入同一个 `request_count` 贡献值，`aggregation` 是否具备幂等性？
 3. 对比 `pk_orders$snapshots.total_record_count` 与 `SELECT COUNT(*)`，解释两者不同的原因。
 4. 增加写入次数后查询 `$files`，观察 Level 0 文件是否增加，以及 Compaction 后如何变化。
 5. 在 Snapshot 1 和最新 Snapshot 中分别查询订单 `1001`，解释“历史完整状态”和“增量事件”的区别。
+6. 把 `first_seen_users` 改成 `deduplicate` 后重跑，用户 `101` 为什么变成 `web`？
+7. 将 `profile_sequence_groups` 的两个 Sequence Group 合并成一个全局 `sequence.field`，两路独立更新会发生什么？
+8. 比较 `scan.tag-name = baseline` 与 `incremental-between = baseline,after_price_change` 的结果集，指出“历史状态”和“区间变化”的区别。
 
 ## 官方资料
 
 - [Paimon 1.3 Flink Quick Start](https://paimon.apache.org/docs/1.3/flink/quick-start/)
 - [Paimon 1.3 Primary Key Table](https://paimon.apache.org/docs/1.3/primary-key-table/overview/)
 - [Paimon 1.3 Merge Engine](https://paimon.apache.org/docs/1.3/primary-key-table/merge-engine/)
-- [Paimon System Tables](https://paimon.apache.org/docs/master/concepts/system-tables/)
-- [Paimon Flink SQL Query](https://paimon.apache.org/docs/master/flink/sql-query/)
+- [Paimon 1.3 First Row](https://paimon.apache.org/docs/1.3/primary-key-table/merge-engine/first-row/)
+- [Paimon 1.3 Partial Update](https://paimon.apache.org/docs/1.3/primary-key-table/merge-engine/partial-update/)
+- [Paimon 1.3 Changelog Producer](https://paimon.apache.org/docs/1.3/primary-key-table/changelog-producer/)
+- [Paimon 1.3 Flink SQL Write](https://paimon.apache.org/docs/1.3/flink/sql-write/)
+- [Paimon 1.3 Flink SQL Query](https://paimon.apache.org/docs/1.3/flink/sql-query/)
+- [Paimon 1.3 Manage Tags](https://paimon.apache.org/docs/1.3/maintenance/manage-tags/)
+- [Paimon 1.3 System Tables](https://paimon.apache.org/docs/1.3/concepts/system-tables/)
 
 ## 相关笔记
 

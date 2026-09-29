@@ -3,6 +3,8 @@
 -- 重跑前必须先确认并取消旧 streaming_events Writer，
 -- 不要让旧作业与新作业同时写入同一表路径。
 
+-- Flink 流式写入 Paimon 时，数据不是到一条就立刻成为表的可见数据，而是以 Checkpoint 为提交边界；Checkpoint 成功后，Paimon 才提交一个新的 Snapshot，使这一批数据原子可见。
+
 SET 'execution.runtime-mode' = 'streaming';
 SET 'execution.checkpointing.interval' = '10s';
 SET 'execution.checkpointing.storage' = 'filesystem';
