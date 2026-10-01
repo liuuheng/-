@@ -23,6 +23,7 @@ status: active
 
 - [[30-计算与SQL开发/32-Spark/性能优化/纯SQL写法优化总结|SQL 优化总结]]
 - [[30-计算与SQL开发/32-Spark/性能优化/spark AQE 优化|AQE 优化]]
+- [[30-计算与SQL开发/32-Spark/性能优化/Spark 动态分区裁剪 DPP 与 SubqueryBroadcast|动态分区裁剪 DPP 与 SubqueryBroadcast]]
 - [[30-计算与SQL开发/32-Spark/性能优化/HashJoin和SortMergeJoin对比|Hash Join 与 Sort Merge Join]]
 - [[30-计算与SQL开发/32-Spark/性能优化/Spark 2.4 vs 3.2 Broadcast 行为差异|Spark 2.4 与 3.2 Broadcast 行为差异]]
 - [[30-计算与SQL开发/32-Spark/性能优化/spark中view的理解|Spark 中 View 的理解]]
