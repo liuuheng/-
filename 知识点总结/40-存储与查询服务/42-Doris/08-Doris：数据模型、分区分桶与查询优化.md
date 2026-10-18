@@ -8,7 +8,6 @@ status: active
 
 # Doris：数据模型、分区分桶与查询优化
 
-返回：[[README|企业微信知识地图]]
 
 ## 1. Doris 与 Spark 的优化入口不同
 
@@ -188,4 +187,3 @@ Tablet 数量过多会增加 FE 内存、调度和元数据日志压力，这也
 - [Doris 数据模型概览](https://doris.apache.org/docs/dev/table-design/data-model/overview)
 - [Doris Unique Key](https://doris.apache.org/docs/dev/table-design/data-model/unique/)
 - [Doris 分区与分桶基础](https://doris.apache.org/docs/4.x/table-design/data-partitioning/basic-concepts/)
-

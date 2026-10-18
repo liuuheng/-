@@ -8,7 +8,6 @@ status: active
 
 # SQL 模式、数据质量与易错语义
 
-返回：[[README|企业微信知识地图]]
 
 ## 1. SQL 的逻辑处理顺序
 
