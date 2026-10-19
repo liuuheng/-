@@ -425,6 +425,9 @@ ON s.user_id = d.user_id;
 | **FullCache** | Caffeine LRU + RocksDB | 两层缓存：Caffeine内存 LRU → 本地 RocksDB，存储完整数据行 |
 | **PartialCache Local** | Caffeine + LookupFile | Caffeine 管理 LookupFile 生命周期，LookupFile 是轻量级 KV 索引文件（SORT 或 HASH 格式） |
 | **PartialCache Remote** | 无本地缓存 | 每次查询通过 TCP 调用 Query Service |
+**Caffeine 不是类似 RocksDB 的东西，它俩完全不是一个层级。**
+- **Caffeine**​ = 纯内存的 Java 对象缓存（类似升级版 HashMap，带自动淘汰）
+- **RocksDB**​ = 嵌入式 KV 数据库（数据落本地磁盘，有 WAL、LSM 树、持久化能力）
 
 ## FullCache 的两层缓存
 
@@ -463,7 +466,9 @@ LookupFile **不是 RocksDB**，而是 Paimon 自己实现的轻量级索引格�
 这些格式专为点查优化，比 RocksDB 更轻量。
 
 > [!note] 批注：不要把 Data File、远端 Lookup File 和本地缓存文件混成一个对象
-> 不同版本可能从原始 Data File 构建本地索引，也可能直接复用表存储中的 Lookup File。文章用“SST”统称候选文件便于讲解，但 Paimon 数据文件可以是 Parquet、ORC 或 Avro，Lookup 文件是另一套点查结构。排查网络流量时要从实际日志确认下载的是数据文件还是已生成的 Lookup 文件。
+> * 不同版本可能从原始 Data File 构建本地索引，也可能直接复用表存储中的 Lookup File。文章用“SST”统称候选文件便于讲解，但 Paimon 数据文件可以是 Parquet、ORC 或 Avro，Lookup 文件是另一套点查结构。排查网络流量时要从实际日志确认下载的是数据文件还是已生成的 Lookup 文件。
+> * 本地磁盘 LookupFile 比 HDFS 快 10~100 倍（省网络、省协议），与数据库查询同处毫秒级延迟；但数据库赢在实时性和共享能力，本地磁盘赢在吞吐量和零运维。选哪种方案不看"谁绝对更快"，看你的维表更新频率、查询分布和架构约束。
+> * 热查延迟相近，但 FullCache 的"重"体现在全量加载、全量冗余、刷新写放大；PartialCache 的"轻"体现在按需加载、无写路径、无后台 Compaction——这些差异在维表大、TM 多、更新频繁时会直接决定作业能不能跑稳。
 
 ## 核心区别
 
