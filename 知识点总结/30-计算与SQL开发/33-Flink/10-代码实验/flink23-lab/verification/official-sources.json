@@ -1,0 +1,422 @@
+[
+  {
+    "url": "https://flink.apache.org/downloads/",
+    "resolved": "https://flink.apache.org/downloads/",
+    "ok": true,
+    "chars": 30889
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/flink-architecture/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/flink-architecture/",
+    "ok": true,
+    "chars": 8970
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/dynamic_tables/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/dynamic_tables/",
+    "ok": true,
+    "chars": 11600
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/time_attributes/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/time_attributes/",
+    "ok": true,
+    "chars": 15609
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/versioned_tables/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/concepts/sql-table-concepts/versioned_tables/",
+    "ok": true,
+    "chars": 6206
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/datagen/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/datagen/",
+    "ok": true,
+    "chars": 2799
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/filesystem/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/filesystem/",
+    "ok": true,
+    "chars": 35859
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/jdbc/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/jdbc/",
+    "ok": true,
+    "chars": 7882
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/kafka/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/datastream/kafka/",
+    "ok": true,
+    "chars": 29104
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/table/datagen/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/connectors/table/datagen/",
+    "ok": true,
+    "chars": 5648
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/config/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/config/",
+    "ok": true,
+    "chars": 241140
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/java_compatibility/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/java_compatibility/",
+    "ok": true,
+    "chars": 2011
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_setup_tm/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_setup_tm/",
+    "ok": true,
+    "chars": 9332
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_trouble/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_trouble/",
+    "ok": true,
+    "chars": 2958
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_tuning/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/mem_tuning/",
+    "ok": true,
+    "chars": 4964
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/network_mem_tuning/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/memory/network_mem_tuning/",
+    "ok": true,
+    "chars": 12918
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/resource-providers/native_kubernetes/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/resource-providers/native_kubernetes/",
+    "ok": true,
+    "chars": 25753
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/resource-providers/yarn/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/deployment/resource-providers/yarn/",
+    "ok": true,
+    "chars": 11982
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/event-time/built_in/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/event-time/built_in/",
+    "ok": true,
+    "chars": 2599
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/event-time/generating_watermarks/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/event-time/generating_watermarks/",
+    "ok": true,
+    "chars": 18369
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution/execution_configuration/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution/execution_configuration/",
+    "ok": true,
+    "chars": 6015
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution/parallel/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution/parallel/",
+    "ok": true,
+    "chars": 5062
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution_mode/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/execution_mode/",
+    "ok": true,
+    "chars": 16644
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/broadcast_state/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/broadcast_state/",
+    "ok": true,
+    "chars": 13669
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/checkpointing/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/checkpointing/",
+    "ok": true,
+    "chars": 27593
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/serialization/schema_evolution/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/serialization/schema_evolution/",
+    "ok": true,
+    "chars": 5488
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/serialization/types_serialization/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/serialization/types_serialization/",
+    "ok": true,
+    "chars": 20650
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state/",
+    "ok": true,
+    "chars": 29284
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state_migration/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state_migration/",
+    "ok": true,
+    "chars": 2854
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state_v2/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/fault-tolerance/state_v2/",
+    "ok": true,
+    "chars": 31133
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/asyncio/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/asyncio/",
+    "ok": true,
+    "chars": 15802
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/joining/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/joining/",
+    "ok": true,
+    "chars": 7128
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/overview/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/overview/",
+    "ok": true,
+    "chars": 17152
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/process_function/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/process_function/",
+    "ok": true,
+    "chars": 12421
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/windows/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/operators/windows/",
+    "ok": true,
+    "chars": 49348
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/overview/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/overview/",
+    "ok": true,
+    "chars": 17873
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/side_output/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/side_output/",
+    "ok": true,
+    "chars": 3095
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/testing/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/datastream/testing/",
+    "ok": true,
+    "chars": 10645
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/config/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/config/",
+    "ok": true,
+    "chars": 48395
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/data_stream_api/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/data_stream_api/",
+    "ok": true,
+    "chars": 111190
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/functions/ptfs/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/functions/ptfs/",
+    "ok": true,
+    "chars": 75238
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/functions/udfs/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/functions/udfs/",
+    "ok": true,
+    "chars": 84559
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/modules/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/modules/",
+    "ok": true,
+    "chars": 17585
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/tuning/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/dev/table/tuning/",
+    "ok": true,
+    "chars": 23860
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/application_lifecycle/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/application_lifecycle/",
+    "ok": true,
+    "chars": 3624
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/sinks/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/sinks/",
+    "ok": true,
+    "chars": 4696
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/sources/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/internals/sources/",
+    "ok": true,
+    "chars": 20409
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/debugging/flame_graphs/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/debugging/flame_graphs/",
+    "ok": true,
+    "chars": 2522
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/metrics/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/metrics/",
+    "ok": true,
+    "chars": 52132
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/monitoring/back_pressure/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/monitoring/back_pressure/",
+    "ok": true,
+    "chars": 2681
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/monitoring/checkpoint_monitoring/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/monitoring/checkpoint_monitoring/",
+    "ok": true,
+    "chars": 6479
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/checkpointing_under_backpressure/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/checkpointing_under_backpressure/",
+    "ok": true,
+    "chars": 8980
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/large_state_tuning/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/large_state_tuning/",
+    "ok": true,
+    "chars": 20382
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/savepoints/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/savepoints/",
+    "ok": true,
+    "chars": 15769
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/state_backends/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/state_backends/",
+    "ok": true,
+    "chars": 28803
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/task_failure_recovery/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/state/task_failure_recovery/",
+    "ok": true,
+    "chars": 18297
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/upgrading/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/ops/upgrading/",
+    "ok": true,
+    "chars": 19225
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/catalogs/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/catalogs/",
+    "ok": true,
+    "chars": 26143
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/interfaces/sql-client/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/interfaces/sql-client/",
+    "ok": true,
+    "chars": 32836
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/materialized-table/overview/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/materialized-table/overview/",
+    "ok": true,
+    "chars": 3481
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/materialized-table/statements/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/materialized-table/statements/",
+    "ok": true,
+    "chars": 21155
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/changelog/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/changelog/",
+    "ok": true,
+    "chars": 8025
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/deduplication/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/deduplication/",
+    "ok": true,
+    "chars": 2040
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/joins/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/joins/",
+    "ok": true,
+    "chars": 17927
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/over-agg/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/over-agg/",
+    "ok": true,
+    "chars": 3280
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-join/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-join/",
+    "ok": true,
+    "chars": 10159
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-topn/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-topn/",
+    "ok": true,
+    "chars": 6480
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-tvf/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/reference/queries/window-tvf/",
+    "ok": true,
+    "chars": 28328
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/timezone/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/docs/sql/timezone/",
+    "ok": true,
+    "chars": 24530
+  },
+  {
+    "url": "https://nightlies.apache.org/flink/flink-docs-release-2.3/release-notes/flink-2.3/",
+    "resolved": "https://nightlies.apache.org/flink/flink-docs-release-2.3/release-notes/flink-2.3/",
+    "ok": true,
+    "chars": 13367
+  }
+]

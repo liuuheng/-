@@ -1,0 +1,30 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0}], EXPR$1=[COUNT(DISTINCT $1)])
++- LogicalProject(user_id=[$1], event_id=[$0])
+   +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+         +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+GlobalGroupAggregate(groupBy=[user_id], partialFinalType=[FINAL], select=[user_id, $SUM0(count$0) AS $f1])
++- Exchange(distribution=[hash[user_id]])
+   +- IncrementalGroupAggregate(partialAggGrouping=[user_id, $f2], finalAggGrouping=[user_id], select=[user_id, COUNT(distinct$0 count$0) AS count$0])
+      +- Exchange(distribution=[hash[user_id, $f2]])
+         +- LocalGroupAggregate(groupBy=[user_id, $f2], partialFinalType=[PARTIAL], select=[user_id, $f2, COUNT(distinct$0 event_id) AS count$0, DISTINCT(event_id) AS distinct$0])
+            +- Calc(select=[user_id, event_id, MOD(HASH_CODE(event_id), 128) AS $f2])
+               +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+                  +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+                     +- Calc(select=[user_id, event_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+GlobalGroupAggregate(groupBy=[user_id], partialFinalType=[FINAL], select=[user_id, $SUM0(count$0) AS $f1])
++- Exchange(distribution=[hash[user_id]])
+   +- IncrementalGroupAggregate(partialAggGrouping=[user_id, $f2], finalAggGrouping=[user_id], select=[user_id, COUNT(distinct$0 count$0) AS count$0])
+      +- Exchange(distribution=[hash[user_id, $f2]])
+         +- LocalGroupAggregate(groupBy=[user_id, $f2], partialFinalType=[PARTIAL], select=[user_id, $f2, COUNT(distinct$0 event_id) AS count$0, DISTINCT(event_id) AS distinct$0])
+            +- Calc(select=[user_id, event_id, MOD(HASH_CODE(event_id), 128) AS $f2])
+               +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+                  +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+                     +- Calc(select=[user_id, event_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

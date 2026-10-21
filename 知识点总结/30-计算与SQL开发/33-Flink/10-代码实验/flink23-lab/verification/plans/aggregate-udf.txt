@@ -1,0 +1,22 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0}], EXPR$1=[avg_money($1)])
++- LogicalProject(user_id=[$1], amount=[$3])
+   +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+         +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+GroupAggregate(groupBy=[user_id], select=[user_id, avg_money(amount) AS EXPR$1])
++- Exchange(distribution=[hash[user_id]])
+   +- Calc(select=[user_id, amount])
+      +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+GroupAggregate(groupBy=[user_id], select=[user_id, avg_money(amount) AS EXPR$1])
++- Exchange(distribution=[hash[user_id]])
+   +- Calc(select=[user_id, amount])
+      +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

@@ -1,0 +1,17 @@
+== Abstract Syntax Tree ==
+LogicalProject(EXPR$0=[safe_ratio($3, $1)])
++- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+   +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+      +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[safe_ratio(amount, user_id) AS EXPR$0])
++- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+   +- Calc(select=[amount, user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+      +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[safe_ratio(amount, user_id) AS EXPR$0])
++- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+   +- Calc(select=[amount, user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+      +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

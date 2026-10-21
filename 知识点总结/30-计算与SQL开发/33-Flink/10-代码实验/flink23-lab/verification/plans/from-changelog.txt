@@ -1,0 +1,13 @@
+== Abstract Syntax Tree ==
+LogicalProject(id=[$0], name=[$1])
++- LogicalTableFunctionScan(invocation=[FROM_CHANGELOG(TABLE(#0), DESCRIPTOR(_UTF-16LE'operation'), DEFAULT(), DEFAULT(), DEFAULT())], rowType=[RecordType(BIGINT id, VARCHAR(2147483647) name)])
+   +- LogicalProject(id=[$0], operation=[$1], name=[$2])
+      +- LogicalTableScan(table=[[default_catalog, default_database, raw_changes]])
+
+== Optimized Physical Plan ==
+ProcessTableFunction(invocation=[FROM_CHANGELOG(TABLE(#0), DESCRIPTOR(_UTF-16LE'operation'), DEFAULT(), DEFAULT(), DEFAULT())], uid=[null], select=[id,name], rowType=[RecordType(BIGINT id, VARCHAR(2147483647) name)])
++- TableSourceScan(table=[[default_catalog, default_database, raw_changes]], fields=[id, operation, name])
+
+== Optimized Execution Plan ==
+ProcessTableFunction(invocation=[FROM_CHANGELOG(TABLE(#0), DESCRIPTOR(_UTF-16LE'operation'), DEFAULT(), DEFAULT(), DEFAULT())], uid=[null], select=[id,name], rowType=[RecordType(BIGINT id, VARCHAR(2147483647) name)])
++- TableSourceScan(table=[[default_catalog, default_database, raw_changes]], fields=[id, operation, name])

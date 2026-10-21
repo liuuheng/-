@@ -1,0 +1,23 @@
+== Abstract Syntax Tree ==
+LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[$5], pt=[$6], rn=[$7])
++- LogicalFilter(condition=[=($7, 1)])
+   +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[$5], pt=[$6], rn=[ROW_NUMBER() OVER (PARTITION BY $0 ORDER BY $5 NULLS FIRST)])
+      +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+         +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+            +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[event_id, user_id, url, amount, ts_ms, et, PROCTIME_MATERIALIZE(pt) AS pt, 1:BIGINT AS rn])
++- Rank(strategy=[AppendFastStrategy], rankType=[ROW_NUMBER], rankRange=[rankStart=1, rankEnd=1], partitionBy=[event_id], orderBy=[ROWTIME et ASC], select=[event_id, user_id, url, amount, ts_ms, et, pt])
+   +- Exchange(distribution=[hash[event_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+         +- Calc(select=[event_id, user_id, url, amount, ts_ms, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et, PROCTIME() AS pt])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[event_id, user_id, url, amount, ts_ms, et, PROCTIME_MATERIALIZE(pt) AS pt, 1 AS rn])
++- Deduplicate(keep=[FirstRow], key=[event_id], order=[ROWTIME], outputInsertOnly=[true])
+   +- Exchange(distribution=[hash[event_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+         +- Calc(select=[event_id, user_id, url, amount, ts_ms, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et, PROCTIME() AS pt])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

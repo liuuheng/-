@@ -1,0 +1,42 @@
+test_bio_spans (test_core_examples.CoreExamplesTest.test_bio_spans) ... ok
+test_bounded_async (test_core_examples.CoreExamplesTest.test_bounded_async) ... ok
+test_causal_mask (test_core_examples.CoreExamplesTest.test_causal_mask) ... ok
+test_chunk_offsets (test_core_examples.CoreExamplesTest.test_chunk_offsets) ... ok
+test_classification_metrics (test_core_examples.CoreExamplesTest.test_classification_metrics) ... ok
+test_clip_pairing (test_core_examples.CoreExamplesTest.test_clip_pairing) ... ok
+test_closure_isolation (test_core_examples.CoreExamplesTest.test_closure_isolation) ... ok
+test_cosine_scale_invariance (test_core_examples.CoreExamplesTest.test_cosine_scale_invariance) ... ok
+test_diffusion_boundaries (test_core_examples.CoreExamplesTest.test_diffusion_boundaries) ... ok
+test_dpo_monotonic_margin (test_core_examples.CoreExamplesTest.test_dpo_monotonic_margin) ... ok
+test_entropy (test_core_examples.CoreExamplesTest.test_entropy) ... ok
+test_group_relative_advantage (test_core_examples.CoreExamplesTest.test_group_relative_advantage) ... ok
+test_kv_heads (test_core_examples.CoreExamplesTest.test_kv_heads) ... ok
+test_lora_merge_equivalence (test_core_examples.CoreExamplesTest.test_lora_merge_equivalence) ... ok
+test_norms (test_core_examples.CoreExamplesTest.test_norms) ... ok
+test_pca_train_center (test_core_examples.CoreExamplesTest.test_pca_train_center) ... ok
+test_ppo_negative_advantage (test_core_examples.CoreExamplesTest.test_ppo_negative_advantage) ... ok
+test_rank_deficient_least_squares (test_core_examples.CoreExamplesTest.test_rank_deficient_least_squares) ... ok
+test_readonly_database (test_core_examples.CoreExamplesTest.test_readonly_database) ... ok
+test_response_only_loss (test_core_examples.CoreExamplesTest.test_response_only_loss) ... ok
+test_retrieval_metrics (test_core_examples.CoreExamplesTest.test_retrieval_metrics) ... ok
+test_rope_relative_position (test_core_examples.CoreExamplesTest.test_rope_relative_position) ... ok
+test_rrf_deduplicates_each_ranking (test_core_examples.CoreExamplesTest.test_rrf_deduplicates_each_ranking) ... ok
+test_sse_boundary (test_core_examples.CoreExamplesTest.test_sse_boundary) ... ok
+test_stable_softmax (test_core_examples.CoreExamplesTest.test_stable_softmax) ... ok
+test_standardization_no_test_leakage (test_core_examples.CoreExamplesTest.test_standardization_no_test_leakage) ... ok
+test_tool_validation (test_core_examples.CoreExamplesTest.test_tool_validation) ... ok
+test_two_sum (test_core_examples.CoreExamplesTest.test_two_sum) ... ok
+test_acl_and_version (test_project_examples.ProjectContracts.test_acl_and_version) ... ok
+test_cancel_requires_confirmation (test_project_examples.ProjectContracts.test_cancel_requires_confirmation) ... ok
+test_citation_missing_and_unknown (test_project_examples.ProjectContracts.test_citation_missing_and_unknown) ... ok
+test_cycle (test_project_examples.ProjectContracts.test_cycle) ... ok
+test_dag (test_project_examples.ProjectContracts.test_dag) ... ok
+test_empty_groups_deny (test_project_examples.ProjectContracts.test_empty_groups_deny) ... ok
+test_missing_order (test_project_examples.ProjectContracts.test_missing_order) ... ok
+test_product_dedup (test_project_examples.ProjectContracts.test_product_dedup) ... ok
+test_unknown_intent (test_project_examples.ProjectContracts.test_unknown_intent) ... ok
+
+----------------------------------------------------------------------
+Ran 37 tests in 0.019s
+
+OK

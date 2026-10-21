@@ -1,0 +1,21 @@
+== Abstract Syntax Tree ==
+LogicalProject(user_id=[$1], amount=[$3], EXPR$2=[CASE(>(COUNT($3) OVER (PARTITION BY $1 ORDER BY $5 NULLS FIRST RANGE 60000:INTERVAL MINUTE PRECEDING), 0), $SUM0($3) OVER (PARTITION BY $1 ORDER BY $5 NULLS FIRST RANGE 60000:INTERVAL MINUTE PRECEDING), null:BIGINT)])
++- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+   +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+      +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[user_id, amount, CASE(>(w0$o0, 0:BIGINT), w0$o1, null:BIGINT) AS EXPR$2])
++- OverAggregate(partitionBy=[user_id], orderBy=[et ASC], window=[ RANGE BETWEEN 60000 PRECEDING AND CURRENT ROW], select=[user_id, amount, et, COUNT(amount) AS w0$o0, $SUM0(amount) AS w0$o1])
+   +- Exchange(distribution=[hash[user_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[user_id, amount, CASE((w0$o0 > 0), w0$o1, null:BIGINT) AS EXPR$2])
++- OverAggregate(partitionBy=[user_id], orderBy=[et ASC], window=[ RANGE BETWEEN 60000 PRECEDING AND CURRENT ROW], select=[user_id, amount, et, COUNT(amount) AS w0$o0, $SUM0(amount) AS w0$o1])
+   +- Exchange(distribution=[hash[user_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

@@ -1,0 +1,30 @@
+== Abstract Syntax Tree ==
+LogicalProject(event_id=[$0], event_id0=[$7])
++- LogicalJoin(condition=[AND(=($1, $8), >=($12, $5), <=($12, +($5, 900000:INTERVAL MINUTE)))], joinType=[inner])
+   :- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+   :  +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+   :     +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+   +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+         +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[event_id, event_id0])
++- IntervalJoin(joinType=[InnerJoin], windowBounds=[isRowTime=true, leftLowerBound=-900000, leftUpperBound=0, leftTimeIndex=2, rightTimeIndex=2], where=[AND(=(user_id, user_id0), >=(et0, et), <=(et0, +(et, 900000:INTERVAL MINUTE)))], select=[event_id, user_id, et, event_id0, user_id0, et0])
+   :- Exchange(distribution=[hash[user_id]])
+   :  +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+   :     +- Calc(select=[event_id, user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+   :        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+   +- Exchange(distribution=[hash[user_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+         +- Calc(select=[event_id, user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[event_id, event_id0])
++- IntervalJoin(joinType=[InnerJoin], windowBounds=[isRowTime=true, leftLowerBound=-900000, leftUpperBound=0, leftTimeIndex=2, rightTimeIndex=2], where=[((user_id = user_id0) AND (et0 >= et) AND (et0 <= (et + 900000:INTERVAL MINUTE)))], select=[event_id, user_id, et, event_id0, user_id0, et0])
+   :- Exchange(distribution=[hash[user_id]])(reuse_id=[1])
+   :  +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+   :     +- Calc(select=[event_id, user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+   :        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+   +- Reused(reference_id=[1])

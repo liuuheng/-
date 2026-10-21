@@ -1,0 +1,72 @@
+{
+  "verified_at": "2026-10-21T00:18:00+08:00",
+  "flink_version": "2.3.0",
+  "java_version": "17.0.19",
+  "java_compile": "passed, no deprecation warnings",
+  "java_source_files": 4,
+  "runtime_assertions": [
+    {
+      "mode": "wordcount",
+      "exit": 0,
+      "seconds": 1.74,
+      "passed": true
+    },
+    {
+      "mode": "windows",
+      "exit": 0,
+      "seconds": 1.75,
+      "passed": true
+    },
+    {
+      "mode": "dedup",
+      "exit": 0,
+      "seconds": 1.75,
+      "passed": true
+    },
+    {
+      "mode": "timers",
+      "exit": 0,
+      "seconds": 1.74,
+      "passed": true
+    },
+    {
+      "mode": "topn",
+      "exit": 0,
+      "seconds": 1.75,
+      "passed": true
+    },
+    {
+      "mode": "sql",
+      "exit": 0,
+      "seconds": 2.83,
+      "passed": true
+    }
+  ],
+  "sql_plan_checks": 17,
+  "notes": 34,
+  "note_internal_links": "passed",
+  "official_urls": 70,
+  "official_urls_failed": 0,
+  "not_executed": [
+    "Kafka/JDBC integration",
+    "YARN/Kubernetes deployment",
+    "checkpoint failure recovery",
+    "savepoint migration",
+    "TTL expiration/migration",
+    "production load tests",
+    "ForSt backend",
+    "materialized table deployment"
+  ],
+  "optimizer_plan_evidence": {
+    "local_global": [
+      "MiniBatchAssigner",
+      "LocalGroupAggregate",
+      "GlobalGroupAggregate"
+    ],
+    "split_distinct": [
+      "MOD(HASH_CODE(event_id), 128)",
+      "IncrementalGroupAggregate",
+      "FINAL"
+    ]
+  }
+}

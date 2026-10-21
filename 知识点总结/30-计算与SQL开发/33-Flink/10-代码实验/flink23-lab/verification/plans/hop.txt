@@ -1,0 +1,26 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0, 1, 2}], EXPR$3=[SUM($3)])
++- LogicalProject(window_start=[$7], window_end=[$8], user_id=[$1], amount=[$3])
+   +- LogicalTableFunctionScan(invocation=[HOP(TABLE(#0), DESCRIPTOR(_UTF-16LE'et'), 5000:INTERVAL SECOND, 60000:INTERVAL MINUTE)], rowType=[RecordType(BIGINT event_id, BIGINT user_id, VARCHAR(2147483647) url, BIGINT amount, BIGINT ts_ms, TIMESTAMP_LTZ(3) *ROWTIME* et, TIMESTAMP_LTZ(3) *PROCTIME* pt, TIMESTAMP(3) window_start, TIMESTAMP(3) window_end, TIMESTAMP_LTZ(3) *ROWTIME* window_time)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[$5], pt=[$6])
+         +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+            +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+               +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[window_start, window_end, user_id, EXPR$3])
++- GlobalWindowAggregate(groupBy=[user_id], window=[HOP(slice_end=[$slice_end], size=[1 min], slide=[5 s])], select=[user_id, SUM(sum$0) AS EXPR$3, COUNT(count1$1) AS window_start, start('w$) AS window_end])
+   +- Exchange(distribution=[hash[user_id]])
+      +- LocalWindowAggregate(groupBy=[user_id], window=[HOP(time_col=[et], size=[1 min], slide=[5 s])], select=[user_id, SUM(amount) AS sum$0, COUNT(*) AS count1$1, slice_end('w$) AS $slice_end])
+         +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+            +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+               +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[window_start, window_end, user_id, EXPR$3])
++- GlobalWindowAggregate(groupBy=[user_id], window=[HOP(slice_end=[$slice_end], size=[1 min], slide=[5 s])], select=[user_id, SUM(sum$0) AS EXPR$3, COUNT(count1$1) AS window_start, start('w$) AS window_end])
+   +- Exchange(distribution=[hash[user_id]])
+      +- LocalWindowAggregate(groupBy=[user_id], window=[HOP(time_col=[et], size=[1 min], slide=[5 s])], select=[user_id, SUM(amount) AS sum$0, COUNT(*) AS count1$1, slice_end('w$) AS $slice_end])
+         +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+            +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+               +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

@@ -1,0 +1,385 @@
+{
+  "originals": [
+    {
+      "path": "/Users/nanan/Documents/面试/尚硅谷大数据技术之Flink-1.17.docx",
+      "bytes": 60524265,
+      "sha256": "3750e4e42639407c9e317d2e38b18ded0993114eb9fad42a5d65bfb363ac89a4"
+    },
+    {
+      "path": "/Users/nanan/Documents/面试/08_尚硅谷大数据技术之Flink优化.docx",
+      "bytes": 2811165,
+      "sha256": "7cfb3bca406b7d96e83558f0bc0d64e85107233d7e9e49b5536fe40adbc1fccb"
+    }
+  ],
+  "notes": [
+    {
+      "folder": "01-核心概念",
+      "filename": "04-Flink 2.3 流批执行与有状态计算.md",
+      "title": "Flink 2.3 流批执行与有状态计算",
+      "chapters": "主教材第1、2、5章",
+      "refs": [
+        "docs/dev/datastream/execution_mode/",
+        "docs/deployment/java_compatibility/"
+      ]
+    },
+    {
+      "folder": "05-部署与工程化",
+      "filename": "10-Flink 2.3 Java项目与最小作业.md",
+      "title": "Flink 2.3 Java 项目与最小作业",
+      "chapters": "主教材第2章；优化第5.1节",
+      "refs": [
+        "docs/dev/datastream/overview/",
+        "docs/dev/datastream/fault-tolerance/serialization/types_serialization/"
+      ]
+    },
+    {
+      "folder": "01-核心概念",
+      "filename": "05-Flink 2.3 执行图、算子链与Slot.md",
+      "title": "Flink 2.3 执行图、算子链与 Slot",
+      "chapters": "主教材第3、4章；优化第1.2、1.3节",
+      "refs": [
+        "docs/concepts/flink-architecture/",
+        "docs/dev/datastream/execution/parallel/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "04-Flink 2.3 Source读取、Split与恢复位置.md",
+      "title": "Flink 2.3 Source 读取、Split 与恢复位置",
+      "chapters": "主教材第5.2节；优化第5.1、7.9节",
+      "refs": [
+        "docs/internals/sources/",
+        "docs/connectors/datastream/datagen/",
+        "docs/connectors/datastream/kafka/",
+        "https://flink.apache.org/downloads/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "05-Flink 2.3 转换、分区与数据质量.md",
+      "title": "Flink 2.3 转换、分区与数据质量",
+      "chapters": "主教材第5.3节；优化第7.13节",
+      "refs": [
+        "docs/dev/datastream/operators/overview/",
+        "docs/dev/datastream/side_output/"
+      ]
+    },
+    {
+      "folder": "01-核心概念",
+      "filename": "06-Flink 2.3 事件时间与Watermark推进.md",
+      "title": "Flink 2.3 事件时间与 Watermark 推进",
+      "chapters": "主教材第6.1、6.2节；优化第7.10节",
+      "refs": [
+        "docs/dev/datastream/event-time/generating_watermarks/",
+        "docs/dev/datastream/event-time/built_in/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "06-Flink 2.3 窗口分配与增量聚合.md",
+      "title": "Flink 2.3 窗口分配与增量聚合",
+      "chapters": "主教材第6.3.1—6.3.5节",
+      "refs": [
+        "docs/dev/datastream/operators/windows/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "07-Flink 2.3 迟到处理与窗口结果修正.md",
+      "title": "Flink 2.3 迟到处理与窗口结果修正",
+      "chapters": "主教材第6.3.6、6.3.7节",
+      "refs": [
+        "docs/dev/datastream/operators/windows/",
+        "docs/dev/datastream/side_output/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "08-Flink 2.3 ProcessFunction与可恢复定时器.md",
+      "title": "Flink 2.3 ProcessFunction 与可恢复定时器",
+      "chapters": "主教材第7.1—7.3、7.5节",
+      "refs": [
+        "docs/dev/datastream/operators/process_function/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "09-Flink 2.3 双流Join的时间与状态边界.md",
+      "title": "Flink 2.3 双流 Join 的时间与状态边界",
+      "chapters": "主教材第5.3.6、6.4节",
+      "refs": [
+        "docs/dev/datastream/operators/joining/",
+        "docs/dev/datastream/operators/process_function/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "05-Flink 2.3 Keyed State、去重与TTL.md",
+      "title": "Flink 2.3 Keyed State、去重与 TTL",
+      "chapters": "主教材第8.1、8.2节；优化第6.1节",
+      "refs": [
+        "docs/dev/datastream/fault-tolerance/state/",
+        "docs/dev/datastream/fault-tolerance/state_migration/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "06-Flink 2.3 算子状态与广播规则一致性.md",
+      "title": "Flink 2.3 算子状态与广播规则一致性",
+      "chapters": "主教材第8.3节",
+      "refs": [
+        "docs/dev/datastream/fault-tolerance/broadcast_state/",
+        "docs/dev/datastream/fault-tolerance/state/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "07-Flink 2.3 状态后端与异步状态访问.md",
+      "title": "Flink 2.3 状态后端与异步状态访问",
+      "chapters": "主教材第8.4节；优化第2.1节",
+      "refs": [
+        "docs/ops/state/state_backends/",
+        "docs/dev/datastream/fault-tolerance/state_v2/",
+        "docs/dev/datastream/fault-tolerance/serialization/schema_evolution/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "08-Flink 2.3 Checkpoint屏障、对齐与恢复.md",
+      "title": "Flink 2.3 Checkpoint 屏障、对齐与恢复",
+      "chapters": "主教材第9.1节；优化第2.2、7.7、7.8节",
+      "refs": [
+        "docs/dev/datastream/fault-tolerance/checkpointing/",
+        "docs/ops/state/checkpointing_under_backpressure/",
+        "docs/ops/state/task_failure_recovery/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "09-Flink 2.3 端到端一致性与Sink提交.md",
+      "title": "Flink 2.3 端到端一致性与 Sink 提交",
+      "chapters": "主教材第5.4、9.2、9.3节",
+      "refs": [
+        "docs/internals/sinks/",
+        "docs/connectors/datastream/filesystem/",
+        "docs/connectors/datastream/kafka/",
+        "docs/connectors/datastream/jdbc/"
+      ]
+    },
+    {
+      "folder": "04-运行时监控与容错",
+      "filename": "10-Flink 2.3 Savepoint、UID与状态演进.md",
+      "title": "Flink 2.3 Savepoint、UID 与状态演进",
+      "chapters": "主教材第9.1.5节；优化第5.2节",
+      "refs": [
+        "docs/ops/state/savepoints/",
+        "docs/dev/datastream/fault-tolerance/serialization/schema_evolution/",
+        "docs/ops/upgrading/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "10-Flink 2.3 两阶段Top-N与排名修正.md",
+      "title": "Flink 2.3 两阶段 Top-N 与排名修正",
+      "chapters": "主教材第7.4节；优化第4.2.3节",
+      "refs": [
+        "docs/dev/datastream/operators/process_function/",
+        "docs/sql/reference/queries/window-topn/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "11-Flink 2.3 动态表、Changelog与流表转换.md",
+      "title": "Flink 2.3 动态表、Changelog 与流表转换",
+      "chapters": "主教材第10.1—10.4节",
+      "refs": [
+        "docs/concepts/sql-table-concepts/dynamic_tables/",
+        "docs/dev/table/data_stream_api/",
+        "docs/sql/reference/queries/changelog/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "12-Flink 2.3 SQL建表、时间属性与时区.md",
+      "title": "Flink 2.3 SQL 建表、时间属性与时区",
+      "chapters": "主教材第10.2、10.4、10.5节",
+      "refs": [
+        "docs/concepts/sql-table-concepts/time_attributes/",
+        "docs/sql/timezone/",
+        "docs/connectors/table/datagen/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "13-Flink 2.3 SQL聚合、窗口TVF与去重排名.md",
+      "title": "Flink 2.3 SQL 聚合、窗口 TVF 与去重排名",
+      "chapters": "主教材第10.6.1—10.6.11节；优化第5.5节",
+      "refs": [
+        "docs/sql/reference/queries/window-tvf/",
+        "docs/sql/reference/queries/over-agg/",
+        "docs/sql/reference/queries/window-topn/",
+        "docs/sql/reference/queries/deduplication/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "14-Flink 2.3 SQL Join选型与历史维度一致性.md",
+      "title": "Flink 2.3 SQL Join 选型与历史维度一致性",
+      "chapters": "主教材第10.6.12节；优化第3.3.4、6.1节",
+      "refs": [
+        "docs/sql/reference/queries/joins/",
+        "docs/sql/reference/queries/window-join/",
+        "docs/concepts/sql-table-concepts/versioned_tables/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "15-Flink 2.3 UDF、Catalog与SQL作业组织.md",
+      "title": "Flink 2.3 UDF、Catalog 与 SQL 作业组织",
+      "chapters": "主教材第10.6.13、10.7—10.9节",
+      "refs": [
+        "docs/dev/table/functions/udfs/",
+        "docs/sql/catalogs/",
+        "docs/dev/table/modules/",
+        "docs/sql/interfaces/sql-client/"
+      ]
+    },
+    {
+      "folder": "02-SQL与API",
+      "filename": "16-Flink 2.3 PTF与物化表的职责边界.md",
+      "title": "Flink 2.3 PTF 与物化表的职责边界",
+      "chapters": "官方补充：扩展主教材第7、8、10章",
+      "refs": [
+        "docs/dev/table/functions/ptfs/",
+        "docs/sql/materialized-table/overview/",
+        "docs/sql/materialized-table/statements/"
+      ]
+    },
+    {
+      "folder": "05-部署与工程化",
+      "filename": "11-Flink 2.3 集群部署与Application生命周期.md",
+      "title": "Flink 2.3 集群部署与 Application 生命周期",
+      "chapters": "主教材第3章；优化第1章",
+      "refs": [
+        "docs/deployment/resource-providers/yarn/",
+        "docs/deployment/resource-providers/native_kubernetes/",
+        "docs/deployment/config/",
+        "docs/internals/application_lifecycle/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "01-Flink 2.3 内存模型、Slot与CPU预算.md",
+      "title": "Flink 2.3 内存模型、Slot 与 CPU 预算",
+      "chapters": "优化第1.1、1.2、7.1—7.6节",
+      "refs": [
+        "docs/deployment/memory/mem_setup_tm/",
+        "docs/deployment/memory/mem_tuning/",
+        "docs/deployment/memory/mem_trouble/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "02-Flink 2.3 并行度规划与可对账压测.md",
+      "title": "Flink 2.3 并行度规划与可对账压测",
+      "chapters": "优化第1.3、5.1节",
+      "refs": [
+        "docs/dev/datastream/execution/parallel/",
+        "docs/connectors/table/datagen/",
+        "docs/dev/datastream/event-time/generating_watermarks/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "03-Flink 2.3 RocksDB缓存、写放大与增量快照.md",
+      "title": "Flink 2.3 RocksDB 缓存、写放大与增量快照",
+      "chapters": "优化第2.1、7.8节",
+      "refs": [
+        "docs/ops/state/large_state_tuning/",
+        "docs/ops/state/state_backends/",
+        "docs/deployment/config/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "04-Flink 2.3 Checkpoint慢的分阶段诊断.md",
+      "title": "Flink 2.3 Checkpoint 慢的分阶段诊断",
+      "chapters": "优化第2.2、7.7、7.8节",
+      "refs": [
+        "docs/ops/state/checkpointing_under_backpressure/",
+        "docs/deployment/memory/network_mem_tuning/",
+        "docs/ops/monitoring/checkpoint_monitoring/",
+        "release-notes/flink-2.3/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "05-Flink 2.3 反压、火焰图与外部IO瓶颈.md",
+      "title": "Flink 2.3 反压、火焰图与外部 I/O 瓶颈",
+      "chapters": "优化第3章、7.14节",
+      "refs": [
+        "docs/ops/monitoring/back_pressure/",
+        "docs/ops/debugging/flame_graphs/",
+        "docs/dev/datastream/operators/asyncio/",
+        "docs/ops/metrics/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "06-Flink 2.3 数据倾斜与两阶段聚合正确性.md",
+      "title": "Flink 2.3 数据倾斜与两阶段聚合正确性",
+      "chapters": "优化第4章",
+      "refs": [
+        "docs/dev/datastream/execution/parallel/",
+        "docs/dev/table/tuning/",
+        "docs/dev/datastream/fault-tolerance/state/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "07-Flink 2.3 对象复用、滑动窗口与延迟测量.md",
+      "title": "Flink 2.3 对象复用、滑动窗口与延迟测量",
+      "chapters": "优化第5.2—5.5节",
+      "refs": [
+        "docs/dev/datastream/execution/execution_configuration/",
+        "docs/dev/datastream/operators/windows/",
+        "docs/sql/reference/queries/window-tvf/",
+        "docs/ops/metrics/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "08-Flink 2.3 SQL MiniBatch、Local-Global与Distinct优化.md",
+      "title": "Flink 2.3 SQL MiniBatch、Local-Global 与 Distinct 优化",
+      "chapters": "优化第6章；官方补充 Regular Join、Multi-Join",
+      "refs": [
+        "docs/dev/table/tuning/",
+        "docs/dev/table/config/",
+        "docs/sql/reference/queries/window-tvf/"
+      ]
+    },
+    {
+      "folder": "09-性能优化",
+      "filename": "09-Flink 2.3 故障排查与证据保留.md",
+      "title": "Flink 2.3 故障排查与证据保留",
+      "chapters": "优化第7章；主教材第3、9章",
+      "refs": [
+        "docs/deployment/memory/mem_trouble/",
+        "docs/ops/monitoring/checkpoint_monitoring/",
+        "docs/ops/metrics/",
+        "docs/deployment/java_compatibility/"
+      ]
+    },
+    {
+      "folder": "10-代码实验",
+      "filename": "01-Flink 2.3 核心代码运行与验证边界.md",
+      "title": "Flink 2.3 核心代码运行与验证边界",
+      "chapters": "本系列综合实验",
+      "refs": [
+        "docs/deployment/java_compatibility/",
+        "docs/dev/datastream/testing/"
+      ]
+    }
+  ],
+  "coverage": "主教材第1至10章、优化教材第1至7章按主题重组；移除过时API与函数，补充Flink 2.3官网内容。此说明不声称逐字保留原文。"
+}

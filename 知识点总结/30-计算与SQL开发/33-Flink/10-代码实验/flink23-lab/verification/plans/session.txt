@@ -1,0 +1,24 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0, 1, 2}], EXPR$3=[COUNT()])
++- LogicalProject(user_id=[$1], window_start=[$7], window_end=[$8])
+   +- LogicalTableFunctionScan(invocation=[SESSION(TABLE(#0) PARTITION BY($1), DESCRIPTOR(_UTF-16LE'et'), 10000:INTERVAL SECOND)], rowType=[RecordType(BIGINT event_id, BIGINT user_id, VARCHAR(2147483647) url, BIGINT amount, BIGINT ts_ms, TIMESTAMP_LTZ(3) *ROWTIME* et, TIMESTAMP_LTZ(3) *PROCTIME* pt, TIMESTAMP(3) window_start, TIMESTAMP(3) window_end, TIMESTAMP_LTZ(3) *ROWTIME* window_time)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[$5], pt=[$6])
+         +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+            +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+               +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+Calc(select=[user_id, window_start, window_end, EXPR$3])
++- WindowAggregate(groupBy=[user_id], window=[SESSION(time_col=[et], gap=[10 s], partition keys=[user_id])], select=[user_id, COUNT(*) AS EXPR$3, start('w$) AS window_start, end('w$) AS window_end])
+   +- Exchange(distribution=[hash[user_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+Calc(select=[user_id, window_start, window_end, EXPR$3])
++- WindowAggregate(groupBy=[user_id], window=[SESSION(time_col=[et], gap=[10 s], partition keys=[user_id])], select=[user_id, COUNT(*) AS EXPR$3, start('w$) AS window_start, end('w$) AS window_end])
+   +- Exchange(distribution=[hash[user_id]])
+      +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+         +- Calc(select=[user_id, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+            +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

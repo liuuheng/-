@@ -1,0 +1,30 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0}], EXPR$1=[COUNT(DISTINCT $1)], EXPR$2=[COUNT(DISTINCT $1) FILTER $2])
++- LogicalProject(url=[$2], user_id=[$1], $f2=[IS TRUE(>($3, 50))])
+   +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+         +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+GlobalGroupAggregate(groupBy=[url], partialFinalType=[FINAL], select=[url, $SUM0(count$0) AS $f1, $SUM0(count$1) AS $f2])
++- Exchange(distribution=[hash[url]])
+   +- IncrementalGroupAggregate(partialAggGrouping=[url, $f3], finalAggGrouping=[url], select=[url, COUNT(distinct$0 count$0) AS count$0, COUNT(distinct$0 count$1) AS count$1])
+      +- Exchange(distribution=[hash[url, $f3]])
+         +- LocalGroupAggregate(groupBy=[url, $f3], partialFinalType=[PARTIAL], select=[url, $f3, COUNT(distinct$0 user_id) AS count$0, COUNT(distinct$0 user_id) FILTER $f2 AS count$1, DISTINCT(user_id) AS distinct$0])
+            +- Calc(select=[url, user_id, IS TRUE(>(amount, 50)) AS $f2, MOD(HASH_CODE(user_id), 128) AS $f3])
+               +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+                  +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+                     +- Calc(select=[url, user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+GlobalGroupAggregate(groupBy=[url], partialFinalType=[FINAL], select=[url, $SUM0(count$0) AS $f1, $SUM0(count$1) AS $f2])
++- Exchange(distribution=[hash[url]])
+   +- IncrementalGroupAggregate(partialAggGrouping=[url, $f3], finalAggGrouping=[url], select=[url, COUNT(distinct$0 count$0) AS count$0, COUNT(distinct$0 count$1) AS count$1])
+      +- Exchange(distribution=[hash[url, $f3]])
+         +- LocalGroupAggregate(groupBy=[url, $f3], partialFinalType=[PARTIAL], select=[url, $f3, COUNT(distinct$0 user_id) AS count$0, COUNT(distinct$0 user_id) FILTER $f2 AS count$1, DISTINCT(user_id) AS distinct$0])
+            +- Calc(select=[url, user_id, (amount > 50) IS TRUE AS $f2, MOD(HASH_CODE(user_id), 128) AS $f3])
+               +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+                  +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+                     +- Calc(select=[url, user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                        +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])

@@ -1,0 +1,26 @@
+== Abstract Syntax Tree ==
+LogicalAggregate(group=[{0}], total=[SUM($1)])
++- LogicalProject(user_id=[$1], amount=[$3])
+   +- LogicalWatermarkAssigner(rowtime=[et], watermark=[-($5, 2000:INTERVAL SECOND)])
+      +- LogicalProject(event_id=[$0], user_id=[$1], url=[$2], amount=[$3], ts_ms=[$4], et=[TO_TIMESTAMP_LTZ($4, 3)], pt=[PROCTIME()])
+         +- LogicalTableScan(table=[[default_catalog, default_database, events]])
+
+== Optimized Physical Plan ==
+GlobalGroupAggregate(groupBy=[user_id], select=[user_id, SUM(sum$0) AS total])
++- Exchange(distribution=[hash[user_id]])
+   +- LocalGroupAggregate(groupBy=[user_id], select=[user_id, SUM(amount) AS sum$0])
+      +- Calc(select=[user_id, amount])
+         +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+            +- WatermarkAssigner(rowtime=[et], watermark=[-(et, 2000:INTERVAL SECOND)])
+               +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                  +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
+
+== Optimized Execution Plan ==
+GlobalGroupAggregate(groupBy=[user_id], select=[user_id, SUM(sum$0) AS total])
++- Exchange(distribution=[hash[user_id]])
+   +- LocalGroupAggregate(groupBy=[user_id], select=[user_id, SUM(amount) AS sum$0])
+      +- Calc(select=[user_id, amount])
+         +- MiniBatchAssigner(interval=[2000ms], mode=[ProcTime])
+            +- WatermarkAssigner(rowtime=[et], watermark=[(et - 2000:INTERVAL SECOND)])
+               +- Calc(select=[user_id, amount, TO_TIMESTAMP_LTZ(ts_ms, 3) AS et])
+                  +- TableSourceScan(table=[[default_catalog, default_database, events]], fields=[event_id, user_id, url, amount, ts_ms])
