@@ -1,5 +1,7 @@
 # Flink 日常开发中的 Java 生态类总览
 
+[[知识点总结/30-计算与SQL开发/33-Flink/00-Flink导航|Flink 导航]]
+
 > 适用基线：项目当前为 Apache Flink 1.17.0、Maven、Java 17 编译配置。Flink 1.18 才正式完成 Java 17 的编译与运行准备，因此 Flink 1.17 的稳妥生产运行基线仍应优先选择 Java 11；若现有集群已经使用 Java 17，必须把 JDK 模块开放参数、Hive/Hadoop/连接器兼容性、序列化和恢复测试纳入上线门禁。
 
 ## 1. 先纠正一个概念

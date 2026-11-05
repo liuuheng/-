@@ -121,3 +121,8 @@ PARTITIONED BY (dt)
 - 作者：胖泽的技术笔记
 - 发布时间：2026-08-04
 - 本笔记按原文机制与源码片段整理。原文标注的类名包括 `DynamicBucketSink`、`PartitionIndex`、`HashIndexMaintainer` 和 `GlobalIndexAssigner`；源码行号及不同 Paimon 版本的具体行为尚未在本次整理中独立核对，生产使用前应以部署版本源码和官方文档为准。
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（七）：动态 Bucket 的单写限制与索引一致性（文章批注版）|动态 Bucket 文章批注]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

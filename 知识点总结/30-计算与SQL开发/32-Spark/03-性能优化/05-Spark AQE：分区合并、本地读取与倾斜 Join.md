@@ -232,3 +232,223 @@ FROM a JOIN b ON a.id = b.id
 |风险|几乎没有|小表预估错误可能 OOM|
 
 > **一句话总结：** 显式 `BROADCAST hint` 是"事前规划"，整个 join 没有 shuffle，性能最优但需要你自己保证小表够小；AQE 动态转换是"事后补救"，shuffle 已经发生了再改策略，`localShuffleReader` 才有用武之地。因此，如果**明确知道某张表很小**，直接用 hint 比依赖 AQE 效果更好。
+
+---
+
+## 判断 AQE 是否真正接管了一个 Shuffle
+
+配置中出现 `spark.sql.adaptive.enabled=true`，或者物理计划根节点出现 `AdaptiveSparkPlan`，只能证明 AQE 已经开启，不能证明某个具体 Exchange 已被 AQE 改写。
+
+AQE 合并 Shuffle 分区需要同时满足下面的执行条件：
+
+1. 上游 Shuffle Map Stage 已经完成，Spark 已经获得各 Shuffle 分区的实际大小。
+2. 下游读取仍处于 AQE 可以改写的查询计划中。
+3. 最终计划在目标 Shuffle 的消费端出现 `ShuffleQueryStage` 和 `AQEShuffleRead`，分区合并时通常还能看到 `coalesced`。
+
+正常被 AQE 接管的简化结构如下：
+
+```text
+Exchange
+└─ ShuffleQueryStage
+   └─ AQEShuffleRead coalesced
+      └─ Join / Aggregate
+```
+
+如果最终计划仍然只是：
+
+```text
+Exchange hashpartitioning(join_key, 200)
+└─ Sort
+   └─ SortMergeJoin
+```
+
+并且 Exchange 的消费端没有 `AQEShuffleRead`，那么 `advisoryPartitionSizeInBytes`、`minPartitionSize` 等参数没有实际介入这个 Shuffle。此时 Stage 的 Task 数通常仍由 Exchange 声明的分区数决定。
+
+因此，判断顺序应是：先找目标 Stage 对应的 Exchange，再检查最终计划中是否出现 `AQEShuffleRead`，最后才解释 AQE 参数。不能只根据 AQE 开关或 Stage Task 数下结论。
+
+## 案例：`CACHE TABLE` 物化时 Join 的 200 个 Task 没有被 AQE 合并
+
+### 运行信息
+
+- Spark 版本：`3.2.2-dt`
+- Application ID：`application_1783495977342_2319165`
+- Attempt ID：`1`
+- SQL Execution ID：`7`
+- 目标 Stage：`Stage 3.0`
+- 执行内容：物化临时缓存表 `tmp_order_quality_core_20261022`
+
+业务查询先把三路数据按 `order_id` 进行 Shuffle，再执行两个 `SortMergeJoin LeftOuter`：
+
+1. 季度审核订单 LEFT JOIN 驳回/退回记录聚合结果。
+2. 上一步结果 LEFT JOIN 每个订单的最新设计记录。
+3. 将 Join 结果写入 `InMemoryRelation`，供后续查询重复读取。
+
+对应的 SQL 不是一个抽象 Join，而是下面这种可复现的缓存结构。这里省略字段清单和各子查询内部过滤，只保留会改变执行边界的部分：
+
+```sql
+DROP VIEW IF EXISTS tmp_order_quality_core_${bdp.system.bizdate};
+
+CREATE TEMPORARY VIEW tmp_order_quality_core_${bdp.system.bizdate} AS
+SELECT
+        full_order.creator_id
+        ,full_order.order_id
+        ,full_order.created
+        ,full_order.last_modified
+        ,order_design.order_design_id
+        ,order_design.design_id
+        ,coalesce(reject_return.return_cnt, 0) AS return_cnt
+        ,coalesce(reject_return.reject_cnt, 0) AS reject_cnt
+FROM
+(
+        -- 当前季度审核订单
+        SELECT order_id, created, creator_id, last_modified
+        FROM order_info
+) full_order
+LEFT JOIN
+(
+        -- 按 order_id 聚合驳回和退回次数
+        SELECT order_id, return_cnt, reject_cnt
+        FROM reject_return_aggregate
+) reject_return
+ON full_order.order_id = reject_return.order_id
+LEFT JOIN
+(
+        -- 每个 order_id 对应的最新订单方案
+        SELECT order_id, order_design_id, design_id
+        FROM latest_order_design
+) order_design
+ON full_order.order_id = order_design.order_id;
+
+CACHE TABLE tmp_order_quality_core_${bdp.system.bizdate};
+```
+
+这里真正触发案例现象的是 `CACHE TABLE`：它立即物化临时视图，并把前面的两个 Join 封装为缓存构建计划。以后即使原 Application 已从 History Server 清理，只要看到“临时视图中包含 Shuffle Join，随后立即 `CACHE TABLE`”的结构，就可以按本案例检查缓存内部 Exchange 是否出现 `AQEShuffleRead`。
+
+### Stage 指标
+
+Stage 3 的直接运行事实如下：
+
+| 指标 | 数值 |
+|---|---:|
+| 成功 Task 数 | 200 |
+| Shuffle Read | 955,891,585 bytes |
+| Shuffle Read Records | 46,485,272 |
+| Shuffle Write Records | 200 |
+| Stage 墙钟耗时 | 5.856 s |
+| Memory Spill / Disk Spill | 0 / 0 |
+
+三个上游 Stage 写出的记录数分别为：
+
+- Stage 0：37,889,732
+- Stage 1：8,320,930
+- Stage 2：274,610
+
+三者相加正好是 `46,485,272`，与 Stage 3 的 Shuffle Read Records 闭合。这证明 Stage 3 正在消费三路 Join 输入，而不是扫描原始文件。
+
+Stage 3 的 200 个 Task 也不能解释为 200 个文件。它们对应缓存构建计划中三个 `Exchange hashpartitioning(order_id, 200)` 的接收分区。平均每个 Task 只读取约 `4.56 MiB` Shuffle，说明分区较碎，但不存在单 Task 数据过大的证据。
+
+`Shuffle Write Records=200` 也不是最终业务结果只有 200 行。`CACHE TABLE` 的 eager 物化会为每个缓存分区产生一条局部计数记录；后续 Stage 8 使用 1 个 Task 汇总这 200 条记录，完成触发缓存的 `count`。
+
+### 为什么 AQE 开启了却没有合并
+
+SQL Execution 7 的最终计划可以简化为：
+
+```text
+AdaptiveSparkPlan
+└─ HashAggregate
+   └─ ShuffleQueryStage
+      └─ Exchange
+         └─ HashAggregate
+            └─ Scan In-memory table tmp_order_quality_core_20261022
+               └─ InMemoryRelation
+                  └─ Project
+                     └─ SortMergeJoin LeftOuter
+                        ├─ SortMergeJoin LeftOuter
+                        │  ├─ Exchange hashpartitioning(order_id, 200)
+                        │  └─ Exchange hashpartitioning(order_id, 200)
+                        └─ Exchange hashpartitioning(order_id, 200)
+```
+
+外层确实是 `AdaptiveSparkPlan`，但两个 Join 和三个 Exchange 已经被封装进 `InMemoryRelation` 的缓存构建计划。外层 AQE 实际看到的是 `InMemoryTableScan` 以及用于触发缓存物化的聚合，不是缓存内部 Join 的 Shuffle 消费端。
+
+本次最终计划中，三个 Join Exchange 上方都没有出现 `AQEShuffleRead`。因此它们仍按 `hashpartitioning(order_id, 200)` 执行，Stage 3 保留 200 个 Task。
+
+这里能够确认的是：在本次 Spark `3.2.2-dt` 的 `CACHE TABLE` eager 物化执行路径中，缓存内部的 Join Exchange 没有进入 AQE 的分区合并改写。不能据此泛化为“所有 Spark 版本中的缓存都会禁用 AQE”；不同 Spark 版本、缓存实现和查询结构需要重新检查最终计划。
+
+### 为什么相关参数没有改变 Stage 3
+
+- `spark.sql.files.maxPartitionBytes` 控制文件扫描分区，Stage 3 消费的是 Shuffle，不受它控制。
+- `spark.sql.adaptive.coalescePartitions.initialPartitionNum` 是 AQE 合并前的初始分区基准，前提是该 Shuffle 进入 AQE 的读取路径。
+- `spark.sql.adaptive.advisoryPartitionSizeInBytes` 是 AQE 合并后的目标大小建议值，不是强制分区大小。
+- `spark.sql.adaptive.coalescePartitions.minPartitionSize` 是合并过程的下限约束，同样依赖 `AQEShuffleRead`。
+- `spark.sql.adaptive.forceApply=true` 也不能解决本例，因为外层已经存在 `AdaptiveSparkPlan`；缺失的是缓存内部 Exchange 对应的自适应 Shuffle Reader。
+- 环境中没有显式设置 `spark.sql.shuffle.partitions`，计划使用了默认的 200；最终物理计划中的 `hashpartitioning(order_id, 200)` 是直接证据。
+
+### 是否需要优化
+
+Stage 3 虽然有 200 个 Task，但墙钟耗时只有约 5.86 秒、没有 Spill，平均 Shuffle Read 约 4.56 MiB。Task 数偏多不等于它是性能瓶颈，本例不值得为了 Stage 3 单独修改全局参数。
+
+如果后续同类缓存 Stage 的调度开销已经成为主要耗时，可以选择两类改法，但需要分别验证：
+
+1. 在创建和物化缓存前调整 `spark.sql.shuffle.partitions`。它会改变该 Session 内相关 Exchange 的分区数，不只影响一个 Stage，不能随意降低。
+2. 在公共核心查询的顶层使用 `COALESCE(n)` 控制缓存结果分区数。它主要影响缓存结果及后续读取，不代表上游 Join 的三个 Exchange 也会从 200 降为 `n`。
+
+将缓存结果先写成临时磁盘表、再由下一条查询读取，也能形成新的查询边界，但会增加落盘和再次扫描成本。只有缓存内部 Join 本身是主要瓶颈、并且 AQE 收益高于额外 I/O 时才值得尝试。
+
+### 优化后复验：静态分区从 200 调整为 22
+
+优化后运行：`application_1783495977342_2319172`。SQL 结构和缓存边界没有改变，本次新增：
+
+```properties
+spark.sql.shuffle.partitions=22
+```
+
+最终计划中的三个 Exchange 由：
+
+```text
+Exchange hashpartitioning(order_id, 200)
+```
+
+变为：
+
+```text
+Exchange hashpartitioning(order_id, 22)
+```
+
+前后两个计划的目标 Join 上方都没有 `AQEShuffleRead`。因此 `200→22` 不是 AQE 合并结果，而是 `spark.sql.shuffle.partitions` 直接改变了缓存内部 Exchange 的静态接收分区数。
+
+| Stage 3 指标 | 调整前 | 调整后 |
+|---|---:|---:|
+| 成功 Task | 200 | 22 |
+| Shuffle Read | 911.61 MiB | 849.77 MiB |
+| Shuffle Read Records | 46,485,272 | 46,442,042 |
+| Task Shuffle Read P50 | 4.56 MiB | 38.62 MiB |
+| Task Shuffle Read P95 | 4.57 MiB | 38.67 MiB |
+| Task Duration P50 | 0.244 s | 3.147 s |
+| Task Duration P95 | 1.867 s | 4.340 s |
+| Peak Execution Memory P50 | 140.06 MiB | 288.50 MiB |
+| 累计 Executor Run Time | 87.60 s | 63.78 s |
+| 累计 CPU Time | 63.84 s | 54.02 s |
+| Stage 墙钟时间 | 5.86 s | 5.75 s |
+| Memory / Disk Spill | 0 / 0 | 0 / 0 |
+
+Task 数下降 `89%`，累计 Executor Run Time 下降约 `27.2%`，但 Stage 墙钟只下降约 `1.9%`。这说明 200 个小 Task 确实带来了额外调度和固定执行开销；同时 Stage 原本只有约 6 秒，也不是应用的主要耗时，所以减少 Task 对关键路径的改善有限。
+
+优化后每个 Task 读取约 `38.6 MiB`，Peak Execution Memory 约 `288.5 MiB`，没有 Spill。在本次 `4g / 2 cores` Executor 配置下，22 个分区没有形成明显内存压力。但 `spark.sql.shuffle.partitions` 是 Session 级配置，它还会影响其他未被 AQE 改写的 Exchange，不能因为本案例安全就作为所有任务的固定推荐值。
+
+应用内全部 Job 的时间窗从 `248.65 s` 下降到 `227.92 s`，实测减少约 `20.73 s / 8.3%`；完成 Task 总数从 `8,285` 降到 `5,791`。不过两次源表记录并不完全相同，SQL Execution 7 本身还从 `22.516 s` 增加到 `34.465 s`，因此这些应用级变化只能作为实测结果，不能全部归因于分区配置。
+
+这个案例最终证明了两件事：缓存内部固定 200 分区可以通过 `spark.sql.shuffle.partitions` 改变；是否由 AQE 完成必须看 `AQEShuffleRead`，不能根据 Task 数下降倒推 AQE 已生效。
+
+业务验收结果：用户确认优化前后结果一致，本轮优化通过。当前保存的是用户确认；若需要可重复执行的字段级证据，还应另外保留双向 `EXCEPT ALL`、NULL、SUM 或稳定 HASH 校验结果。
+
+### 验证清单
+
+- 配置页确认 `spark.sql.adaptive.enabled=true` 及对应子开关。
+- 从 SQL 最终计划定位目标 Stage 对应的 `Exchange`，不要只看初始计划。
+- 检查消费端是否有 `ShuffleQueryStage`、`AQEShuffleRead` 和 `coalesced`。
+- 用完整 Task 数据核对 Shuffle Read/Write Records、Bytes、Task 数、P50/P95、Spill 和墙钟耗时。
+- 区分扫描 Task、Shuffle Reduce Task、缓存分区和输出文件，不能相互替代。
+- 参数调整后重新确认最终计划和 Stage Task 数，而不是只确认配置值已经写入。
+
+案例证据目录：`spark-runtime-model/real-runs/application_1783495977342_2319165/`。

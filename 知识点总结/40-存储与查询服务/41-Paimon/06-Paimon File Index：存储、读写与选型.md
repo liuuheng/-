@@ -49,3 +49,8 @@ File Index 是与数据文件关联的索引数据，用于在查询时进一步
 - Apache Paimon：[1.4 主键表 File Index 说明](https://paimon.apache.org/docs/1.4/primary-key-table/query-performance/)
 
 本文概括原文的机制，并用官方文档核对了索引类型、版本差异和旧文件补建方式。原文中有抓取后损坏的代码与比较符号，因此没有照抄那些片段；具体源码调用链尚未针对某个 Paimon 版本逐项验证。
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（六）：File Index 的存储与读写链路（文章批注版）|File Index 文章批注]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

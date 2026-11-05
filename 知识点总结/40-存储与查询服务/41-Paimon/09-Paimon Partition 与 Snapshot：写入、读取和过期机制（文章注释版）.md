@@ -405,3 +405,8 @@ FROM `orders$consumers`;
 - `consumer-id` 不是给表建一次就自动保护全部下游。每个需要保留进度的流式 Reader 要配置自己的消费标识，并管理其生命周期。
 
 相关笔记：[[11-Paimon Snapshot 历史分区查询]]、[[12-Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]、[[16-Paimon 架构全景：写入、快照、索引与变更语义（文章批注版）]]。
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（三）：Partition、Snapshot 与数据生命周期（文章批注版）|Partition 与 Snapshot 文章批注]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

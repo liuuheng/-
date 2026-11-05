@@ -498,3 +498,8 @@ tag.num-retained-max = 30
 
 - 上一篇：[[Paimon 精讲（二）：Flink SQL 写入与 Changelog 生成机制（文章批注版）]]
 - 下一篇：[[Paimon 精讲（四）：Fixed、Dynamic 与 Unaware Bucket（文章批注版）]]
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/09-Paimon Partition 与 Snapshot：写入、读取和过期机制（文章注释版）|Partition 与 Snapshot 关系]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

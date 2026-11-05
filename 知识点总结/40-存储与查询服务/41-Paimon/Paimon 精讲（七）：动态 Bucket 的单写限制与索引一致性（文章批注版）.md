@@ -220,3 +220,8 @@ same dynamic bucket table, it only supports single write
 
 - 上一篇：[[Paimon 精讲（六）：File Index 的存储与读写链路（文章批注版）]]
 - 下一篇：[[Paimon 精讲（八）：查询裁剪、统计信息与 Files Table（文章批注版）]]
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/14-Paimon 动态 Bucket 的索引机制与单 Writer 限制|动态 Bucket 索引与写入限制]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

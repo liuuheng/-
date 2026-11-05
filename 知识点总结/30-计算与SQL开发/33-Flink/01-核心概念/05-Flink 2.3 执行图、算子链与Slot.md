@@ -59,3 +59,7 @@ slot 通常不提供独立 CPU 隔离。同一 JVM 内多个任务线程会竞�
 前篇：[[10-Flink 2.3 Java项目与最小作业]]
 
 后篇：[[04-Flink 2.3 Source读取、Split与恢复位置]]
+
+## 复习练习
+
+理解执行图和 Slot 后，可用 [[知识点总结/80-资料与复习/83-复习卡片/Flink/01-任务槽共享组 Slot Sharing Group|Slot Sharing Group 复习卡片]] 检查共享组与资源估算的理解。

@@ -353,3 +353,8 @@ File Index 的本质可以概括为一句话：**用少量的元数据，换取�
 
 - 上一篇：[[Paimon 精讲（五）：Deletion Vector 与 Merge On Write（文章批注版）]]
 - 下一篇：[[Paimon 精讲（七）：动态 Bucket 的单写限制与索引一致性（文章批注版）]]
+
+## 关联阅读
+
+- [[知识点总结/40-存储与查询服务/41-Paimon/06-Paimon File Index：存储、读写与选型|File Index 机制与选型]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/00-Paimon导航|Paimon 导航]]

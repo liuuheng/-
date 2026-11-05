@@ -256,3 +256,7 @@ env.execute("job-name");
 ```
 
 没有它，程序通常只是描述了计算流程，并没有真正启动作业。
+
+## 工程排查入口
+
+本地与集群的依赖差异、Web UI 缺失、日志实现冲突等场景，结合 [[知识点总结/30-计算与SQL开发/33-Flink/05-部署与工程化/08-Maven依赖scope与classpath|Maven 依赖与 classpath 工程排查]] 查阅。

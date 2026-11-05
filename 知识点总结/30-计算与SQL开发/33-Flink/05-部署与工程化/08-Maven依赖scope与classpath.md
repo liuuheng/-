@@ -290,3 +290,7 @@ Flink 核心依赖 → provided
 local profile：适合 IDEA 运行
 cluster profile：适合集群打包
 ```
+
+## 概念学习入口
+
+需要从源码、JAR、classpath 和依赖作用域开始学习时，阅读 [[知识点总结/30-计算与SQL开发/33-Flink/06-Java基础/11-Maven、JAR、classpath与依赖作用域|Maven 与依赖作用域基础]]。本篇保留本地运行、集群打包和依赖冲突的工程排查场景。

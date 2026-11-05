@@ -283,5 +283,5 @@ for (SimpleFileEntry entry : mergedEntries) {
 ## 系列导航
 
 - 上一篇：[[Paimon 精讲（九）：Append 表的 Bucket Key 与文件索引（文章批注版）]]
-- 延伸阅读：[[Flink 实时维表性能优化（上）：用对 Paimon Lookup 的完整实践（文章批注版）]]
-- 延伸阅读：[[Flink 实时维表性能优化（下）：用对 Paimon Lookup 的完整实践（文章批注版）]]
+- 延伸阅读：[[知识点总结/40-存储与查询服务/41-Paimon/03-Flink 实时维表性能优化（上）：用对 Paimon Lookup 的完整实践（文章批注版）|Lookup 文章批注 上篇]]
+- 延伸阅读：[[知识点总结/40-存储与查询服务/41-Paimon/04-Flink 实时维表性能优化（下）：用对 Paimon Lookup 的完整实践（文章批注版）|Lookup 文章批注 下篇]]

@@ -271,11 +271,11 @@ Tag 的存储量不是简单的“表大小 × Tag 数量”。相邻 Snapshot �
 
 ## 相关笔记
 
-- [[Paimon 主键表建模与稳定性检查清单]]
-- [[Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
-- [[Paimon 系统表、监控指标与故障排查]]
-- [[Flink 实时维表性能优化（下）：用对 Paimon Lookup 的完整实践（文章批注版）]]
-- [[Paimon MOR、COW、MOW 与 Deletion Vector]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/13-Paimon 主键表建模与稳定性检查清单|主键表建模与稳定性检查]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/12-Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系|Snapshot 与数据文件]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/18-Paimon 系统表、监控指标与故障排查|系统表与故障排查]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/04-Flink 实时维表性能优化（下）：用对 Paimon Lookup 的完整实践（文章批注版）|Lookup 文章批注 下篇]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/08-Paimon MOR、COW、MOW 与 Deletion Vector|MOR COW MOW 与 Deletion Vector]]
 
 ## 官方资料
 
