@@ -1,5 +1,7 @@
 # Paimon 本地 SQL 验证实验手册
 
+> 2026-11-07 更新实验范围说明：本目录保留基础 `00—06、99` 八个脚本，数据库为 `paimon_lab`；IDEA 学习项目另有 `00—22、99` 等脚本，数据库为 `paimon_sql_learning`。两套编号和数据库不同，不能直接互换。本文补充映射与历史验证记录，本次没有重跑集群。
+
 这套实验用可重复执行的 SQL 回答四类问题：表模型怎样合并记录，版本对象怎样组织历史，批量 DML 怎样改变表状态，流式数据何时对外可见。每个脚本只负责一个主题；除元数据巡检和流式验证外，其余实验都可独立重跑。
 
 ## 环境与安全边界
@@ -271,22 +273,36 @@ docker exec jobmanager /opt/flink/bin/sql-client.sh \
 | Checkpoint 提交、Snapshot 可见性、独立读者验证 | 05、06 |
 | 对象级清理边界 | 99 |
 
-下列知识点在现有笔记中已经讲到，但本套 SQL 尚未形成可重复实验。它们不是遗漏在现有脚本里的几行查询，而是需要额外作业、配置、数据量或故障注入：
+### 学习项目已有的扩展实验
 
-| 尚未覆盖 | 为什么不能并入当前脚本 | 建议后续实验 |
+此前把下列主题列为后续实验，是针对本目录八个基础脚本的判断。2026-10-04 学习项目已扩展，不应继续把它们全部当作“尚无实验”。项目位置为 `/Users/nanan/Desktop/bigdata-projects/bigdata240620/Flink/sql/paimon-learning`；该目录的 README 和具体脚本共同说明验证范围。
+
+| 主题 | 项目脚本编号 | 已有记录能够证明什么 | 尚不能证明什么 |
+| --- | --- | --- | --- |
+| RowKind 与 Changelog Producer | 09 | input/lookup/full-compaction 可建表并得到预期最终状态，另有 Audit Log 观察查询 | 持续下游对所有更新、删除和聚合的处理均正确 |
+| MOR/COW/MOW、DV 与 Compaction | 10 | 相应表配置、逻辑结果、Level 和 DV 元数据可观察 | 大数据量下的性能、成本和长期稳定性 |
+| 动态桶、跨分区 Upsert、Bootstrap | 11、16 | HASH 索引、分区迁移、Bootstrap 参数与 Snapshot Ordering 的指定用例 | 大规模恢复耗时、TTL 之外历史更新的完整正确性 |
+| File Index、Snapshot 与 Tag | 12 | 三类索引配置、补建、查询结果、普通 Snapshot 过期与 Tag 保留 | 实际扫描裁剪效果；Orphan 物理清理仅有模板 |
+| 持续 Writer 与命名 Consumer | 07、08、13、14 | Writer/Reader 成功 Checkpoint，Consumer 进度可查询 | 停机超出保留期或旧 Savepoint 的恢复结果 |
+| 生命周期与写缓冲 | 16 | 参数可配置、自动 Tag 生成 | 自然分区过期、压力下 Spill 和磁盘峰值 |
+| 多 Writer 与独立 Compactor | 17—21 | 不同分区的两个 Writer 与 Compactor 可协作，指定结果通过 | 同分区同键胜出、文件冲突与完整重试行为 |
+| 外部 CDC 与 Catalog | 15、22 | 目标 DDL 或安全 SET 已检查；外部命令与 DDL 保持模板 | 真实 MySQL/Kafka/Pulsar、Hive/JDBC/REST 与恢复已接通 |
+
+这里的“已有记录”来自项目 README 的 2026-10-04 记录和当前脚本内容，本次未再次运行。09 的 PASS 主要检查最终状态，12 的索引查询主要检查结果；25 个 PASS 不能扩展成全部生产语义或性能已经通过。
+
+### 后续演练应补的证据
+
+| 待验证问题 | 现有起点 | 本次补充的说明 |
 | --- | --- | --- |
-| `changelog-producer=input/lookup/full-compaction` 的完整性与成本 | 需要持续 Reader 对比 `+I/-U/+U/-D`、完整字段和 Merge 后状态 | 后续增加 07-paimon-changelog-producers.sql 和独立 Reader |
-| L0→L1 Compaction、Sorted Run、小文件收敛 | 当前数据量太小，Compaction 时机不稳定 | 批量制造多次提交，再执行独立 Compaction 并对比 `$files` |
-| Snapshot 过期、Tag 保留与 Orphan File 清理 | 涉及等待时间和物理删除，误操作风险较高 | 独立 warehouse 中做生命周期实验 |
-| File Index、Min/Max 裁剪与实际跳过文件数 | 需要足够数据量、索引配置、执行计划和 Scan Metrics | 构造大表，对比候选文件与实际读取文件 |
-| Streaming Read 启动模式与 `$consumers` 进度 | 当前只有流式 Writer，没有持续 Reader | 增加带 `consumer-id` 的 Reader 作业 |
-| Dynamic Bucket、跨分区 Upsert、索引 Bootstrap | 需要不同 Bucket 模式、主键/分区组合和恢复场景 | 独立动态 Bucket 实验 |
-| 多 Writer 冲突、独立 Compaction Job | 需要并发 Job 和冲突/重试证据 | 两个 Writer 写同表并记录 Commit/File Conflict |
-| MOR、COW、MOW、Deletion Vector | 依赖表模式与 Compaction/DV 配置，不能由普通主键表推断 | 三张隔离表做文件与查询对照 |
-| MySQL CDC 初始快照、Binlog、Schema 变更和恢复 | 需要 MySQL CDC Connector、Binlog、权限与 Checkpoint 恢复 | 单独搭建 CDC 端到端实验 |
-| Catalog 原子提交差异、Hive Catalog 与跨引擎读取 | filesystem Catalog 不能代表 HMS/REST Catalog | 独立多 Catalog、多引擎环境验证 |
+| Checkpoint 故障与旧 Savepoint 恢复 | 07、13 和恢复说明 | [[20-Paimon Checkpoint、Savepoint 与一致性恢复]] |
+| Changelog 下游 SUM/COUNT 与删除 | 09 的结果断言与 Audit Log | [[21-Paimon Changelog 下游聚合与消费恢复验证]] |
+| 慢 Consumer、独立 Changelog 保留与安全清理 | 12、16 的生命周期模板 | [[22-Paimon Snapshot 回滚、Branch 与安全文件清理]] |
+| 同分区同键、Compaction/Overwrite 竞争与 Rescale | 17—21 的不同分区实验 | [[23-Paimon 多 Writer 冲突验证与 Bucket 扩缩容]] |
+| 实际裁剪、读写放大、资源和积压收敛 | 12 的索引与 16 的参数 | [[24-Paimon 查询裁剪、Compaction 与容量调优]] |
+| 外部 Catalog、多引擎读取与数据对账 | 15、22 的外部模板 | [[25-Paimon 多引擎读写、Catalog 与存储部署]] |
+| MySQL 初始快照、DDL 与恢复 | 15、22 的 CDC 模板 | [[05-Paimon CDC 入湖、Schema Evolution 与恢复语义]] |
 
-建议优先补 `changelog-producer`、Compaction 和流式 Reader。这三组与现有 00—06 的输入表可以直接衔接，也最容易暴露“RowKind 完整、字段完整、最终逻辑状态”之间的差异。
+这些新增文章给出机制、操作前提和判据，均不是新的集群实测记录。恢复、并发和清理演练使用独立库与 Warehouse，并保留输入及预期，不在已有实验表上直接执行破坏性操作。
 
 ## 验证状态与版本边界
 
@@ -300,7 +316,11 @@ docker exec jobmanager /opt/flink/bin/sql-client.sh \
 
 2026-09-29 的重构保留了原数据与断言语义，但重新拆分文件，并新增 Merge Engine、DML、Tag、增量读取和系统表字段说明。
 
-本次已按 Paimon `1.3` 官方文档静态核对 SQL 结构，尚未在当前本地集群逐个重跑重构后的 8 个脚本。尤其是官网 `1.3.2` 与本地 `1.3.1` 之间若有补丁差异，应以本地 SQL Client 报错、实际系统表 Schema 和连接器版本为准。
+上段描述的是 2026-09-29 基础脚本重构时的状态：当时按 Paimon `1.3` 官方文档静态核对，未逐个重跑本目录八个脚本。不能把它理解为后续学习项目也一直没有执行。
+
+2026-10-04 的学习项目记录包含 25 个 PASS，以及 Writer/Reader、双 Writer 和独立 Compactor 的成功 Checkpoint；外部 CDC、外部 Catalog、同分区冲突与恢复流程仍未验证。该记录对应 `paimon_sql_learning`，不追认本目录不同编号、不同库的脚本全部已经重跑。
+
+2026-11-07 本次仅对照项目 README 与 SQL 回填进度，没有启动或取消 Flink 作业，没有重新执行断言，也没有清理实验数据。官网 `1.3` 分支展示的补丁版本与本地 `1.3.1` 仍需区分；实际系统表字段和过程签名以本地连接器为准。
 
 ## 建议独立完成的验证题
 

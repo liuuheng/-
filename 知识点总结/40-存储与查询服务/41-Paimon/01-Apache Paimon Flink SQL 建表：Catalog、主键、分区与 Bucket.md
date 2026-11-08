@@ -1,6 +1,6 @@
 # Apache Paimon Flink SQL 建表：Catalog、主键、分区与 Bucket
 
-> 核对日期：2026-09-14。本文以 **Apache Paimon 2.0.0 最新稳定版**为基线；官网 `master` 当前是 `2.2-SNAPSHOT`，不将其新能力默认套用到稳定版。版本依据：[Paimon 2.0 下载页](https://paimon.apache.org/docs/2.0/project/download/)、[Apache Paimon 官方 Releases](https://github.com/apache/paimon/releases)。
+> 版本边界：本文建表规则以 **Apache Paimon 2.0 文档**为参考；2026-11-07 补充核对分区主键与版本说明。本地已有实验使用 **Flink 1.18.1 + Paimon 1.3.1**，不代表已经升级到 2.0，也不代表本文所有参数都在本地通过。`master` 是开发文档，不能直接作为旧版连接器的配置依据。安装依赖应按目标引擎版本选择，[Paimon 2.0 下载页](https://paimon.apache.org/docs/2.0/project/download/)用于查对应制品。
 
 ## 核心结论
 
@@ -71,7 +71,9 @@ CREATE TABLE orders (
 
 ## 4. 分区与跨分区更新
 
-稳妥的建模是让主键包含全部分区字段，例如 `PRIMARY KEY (dt, order_id)` 搭配 `PARTITIONED BY (dt)`。这样记录的逻辑键自带分区边界，不会因分区值变化而在两个分区留下两份数据。
+主键包含全部分区字段，例如 `PRIMARY KEY (dt, order_id)` 搭配 `PARTITIONED BY (dt)`，可以让同一个逻辑键的记录落在同一分区，但同时改变了业务唯一性：`('2026-11-06', 1001)` 和 `('2026-11-07', 1001)` 是两个不同主键。仅向新日期 Upsert，不会自动删除旧日期的记录。
+
+因此，该设计需要满足以下条件之一：分区字段对同一实体不可变；上游提供可被正确处理的旧键撤回和新键写入；或者业务本来就允许每个日期保留一行。不能为了避免跨分区索引，直接把会变化的日期加入主键后仍宣称 `order_id` 全局唯一。详见 [[13-Paimon 主键表建模与稳定性检查清单]]。
 
 主键不包含所有分区列时，属于 cross-partition upsert：
 
@@ -130,6 +132,21 @@ CREATE TABLE orders (
 5. **`write-only = true` 不是免运维开关。** 它会跳过 compaction 和 snapshot expiration，必须有独立 compact 作业及 snapshot 清理策略。依据：[Configurations](https://paimon.apache.org/docs/2.0/maintenance/configurations/)。
 6. **Hive Catalog 还有命名和分区同步约束。** 库名、表名、字段名应使用小写；新 Paimon 分区默认不同步到 Hive Metastore，需要 HMS 可见分区时设置 `metastore.partitioned-table = true`。依据：[Flink SQL DDL / Hive Catalog](https://paimon.apache.org/docs/2.0/flink/sql-ddl/)。
 7. **不要混用不同版本文档。** `master` 是开发版，0.x、1.x、2.0 在默认值、CTAS 语法和能力上可能不同；实际集群不是 2.0.0 时，应切换到对应版本文档重新核对。依据：[Paimon 2.0 下载页](https://paimon.apache.org/docs/2.0/project/download/)。
+
+## 8. 怎样区分知识版本与实测版本
+
+本目录同时保留机制文章、源码批注和本地实验，三者用途不同。每条配置至少要明确适用的 Paimon 版本、计算引擎版本和实际验证范围。
+
+| 内容来源 | 能够说明什么 | 不能直接推出什么 |
+| --- | --- | --- |
+| 本文的 Paimon 2.0 文档 | 该文档分支下的建表规则和能力入口 | 本地 1.3.1 已支持相同配置 |
+| 精讲文章及其源码批注 | 对应源码版本的实现与调用路径 | 所有后续连接器保持相同内部类和默认值 |
+| 旧笔记引用的 master | 当时开发文档中的规则，用于追溯 | 旧发布版已经实现或当前部署已经升级 |
+| 本地 Flink 1.18.1 + Paimon 1.3.1 | 历史记录中明确执行的用例结果 | 所有模板、恢复和性能场景均已通过 |
+
+实际使用时先查看所部署的连接器制品和引擎版本，再核对 `SHOW CREATE TABLE`、`$options`、系统表 `DESCRIBE` 与日志。参数能写进元数据，只证明配置被保存，不证明实际路径已经使用它；仍需功能结果或指标验证。
+
+本地过程调用和 File Index 曾遇到文档版本差异，因此不能只把 URL 从 `master` 换成 `2.0` 就称为完成兼容验证。本文新增的恢复、并发、性能和跨引擎文章均标明文档核对与待执行范围，具体部署见 [[25-Paimon 多引擎读写、Catalog 与存储部署]]，历史实验映射见 [[实验/01-Paimon 本地 SQL 验证实验手册]]。
 
 ## 总结
 

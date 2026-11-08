@@ -282,6 +282,9 @@ Filesystem-managed Snapshot 默认先写临时文件再 Rename。HDFS 提供原�
 
 ## 相关笔记
 
+- [[23-Paimon 多 Writer 冲突验证与 Bucket 扩缩容]]
+- [[25-Paimon 多引擎读写、Catalog 与存储部署]]
+
 - [[13-Paimon 主键表建模与稳定性检查清单]]
 - [[12-Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
 - [[08-Paimon MOR、COW、MOW 与 Deletion Vector]]

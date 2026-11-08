@@ -241,3 +241,7 @@ WHERE dt = '<partition-value>';
 - [Apache Paimon 2.0：Manage Snapshots](https://paimon.apache.org/docs/2.0/maintenance/manage-snapshots/)
 
 最终记忆：**Snapshot 选择历史表版本，`dt` 选择该版本中的业务分区；查看完整状态用 `scan.snapshot-id`，查看版本间变化用 `incremental-between`，长期版本用 Tag。**
+
+## 延伸阅读
+
+- [[22-Paimon Snapshot 回滚、Branch 与安全文件清理]]

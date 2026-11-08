@@ -184,6 +184,9 @@ Snapshot 保留由三个参数共同决定：
 
 ## 参考资料
 
+- [[23-Paimon 多 Writer 冲突验证与 Bucket 扩缩容]]
+- [[24-Paimon 查询裁剪、Compaction 与容量调优]]
+
 - [Paimon Data Distribution](https://paimon.apache.org/docs/master/primary-key-table/data-distribution/)
 - [Paimon Changelog Producer](https://paimon.apache.org/docs/master/primary-key-table/changelog-producer/)
 - [Paimon Streaming Writes and Small Files](https://paimon.apache.org/docs/master/learn-paimon/small-files/)

@@ -210,6 +210,9 @@ SELECT * FROM `orders$consumers`;
 
 ## 相关笔记
 
+- [[24-Paimon 查询裁剪、Compaction 与容量调优]]
+- [[22-Paimon Snapshot 回滚、Branch 与安全文件清理]]
+
 - [[17-Paimon 流式读写中的 Snapshot 与 Changelog]]
 - [[12-Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
 - [[15-Paimon 多 Writer、Catalog 与原子提交]]

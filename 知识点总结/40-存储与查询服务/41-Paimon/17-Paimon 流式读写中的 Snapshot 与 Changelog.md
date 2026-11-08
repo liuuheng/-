@@ -296,6 +296,9 @@ Reader决定“如何消费这个版本的变化”
 
 ## 相关笔记
 
+- [[21-Paimon Changelog 下游聚合与消费恢复验证]]
+- [[20-Paimon Checkpoint、Savepoint 与一致性恢复]]
+
 - [[12-Paimon Snapshot、Manifest、Parquet 与 Compaction 的关系]]
 - [[02-Apache Paimon 表模型、存储组织与读取语义]]
 - [[01-Apache Paimon Flink SQL 建表：Catalog、主键、分区与 Bucket]]
