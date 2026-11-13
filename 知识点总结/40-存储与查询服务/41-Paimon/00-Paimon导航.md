@@ -43,6 +43,7 @@
 - [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（八）：查询裁剪、统计信息与 Files Table（文章批注版）|精讲八 查询裁剪与 Files Table]]
 - [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（九）：Append 表的 Bucket Key 与文件索引（文章批注版）|精讲九 Append 表索引]]
 - [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（十）：Flink Sink 并发、Bucket 路由与写入冲突（文章批注版）|精讲十 Sink 并发与写入冲突]]
+- [[知识点总结/40-存储与查询服务/41-Paimon/Paimon 精讲（十一）：Append 表增量 Clustering 与并发语义（文章批注版）|精讲十一 Append增量Clustering与并发语义]]：含配置、容量换算和提交语义勘误。
 
 ## 实验
 

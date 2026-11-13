@@ -1,0 +1,65 @@
+{
+  "commit": "245680119a4efee32a50d4abb8953624e8272ce6",
+  "files": [
+    {
+      "path": "paimon-spark/paimon-spark-common/src/main/java/org/apache/paimon/spark/procedure/CompactProcedure.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-spark/paimon-spark-common/src/main/java/org/apache/paimon/spark/procedure/CompactProcedure.java",
+      "sha256": "b92d665635ba64152ed7243b48f37dcea5949248ea953e699e09ac2f367a347e"
+    },
+    {
+      "path": "paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/cluster/RemoveClusterBeforeFilesOperator.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/cluster/RemoveClusterBeforeFilesOperator.java",
+      "sha256": "38c41768f7a3cbeb3d7bdd48e9aa4b03ed055d0580a5ffa93633b2e66fa610da"
+    },
+    {
+      "path": "paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/cluster/RewriteIncrementalClusterCommittableOperator.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/cluster/RewriteIncrementalClusterCommittableOperator.java",
+      "sha256": "8510d58a1366cdc4e59ef7f7904e085afa4153b5fdf35df0f21bd8cce3608664"
+    },
+    {
+      "path": "paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/compact/IncrementalClusterCompact.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/compact/IncrementalClusterCompact.java",
+      "sha256": "e45bea8468d2dd1c5d1066f62cfa5462094235ffc5b669b2410161df0f5dae97"
+    },
+    {
+      "path": "paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/procedure/CompactProcedure.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-flink/paimon-flink-common/src/main/java/org/apache/paimon/flink/procedure/CompactProcedure.java",
+      "sha256": "5fa4aff47aecab39e27f08eb9df130a7f64bf7eef47e79a91204ffc5b2c52bd7"
+    },
+    {
+      "path": "paimon-flink/paimon-flink-1.18/src/main/java/org/apache/paimon/flink/procedure/CompactProcedure.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-flink/paimon-flink-1.18/src/main/java/org/apache/paimon/flink/procedure/CompactProcedure.java",
+      "sha256": "54c7f6c93a68710b52ed76274b90d2ba5b22bca3a64363f74f2a944acd89ce88"
+    },
+    {
+      "path": "paimon-core/src/main/java/org/apache/paimon/operation/FileStoreCommitImpl.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-core/src/main/java/org/apache/paimon/operation/FileStoreCommitImpl.java",
+      "sha256": "73bcc4086b41724fae22aa3b583a820ffbba230c8760ea30ae234a6a75123b0f"
+    },
+    {
+      "path": "paimon-core/src/main/java/org/apache/paimon/table/sink/TableCommitImpl.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-core/src/main/java/org/apache/paimon/table/sink/TableCommitImpl.java",
+      "sha256": "c7d0537a479eeb97ca71f0cd5ceef4615285a73edcea37029f6afc622508aee6"
+    },
+    {
+      "path": "paimon-core/src/main/java/org/apache/paimon/table/source/snapshot/DeltaFollowUpScanner.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-core/src/main/java/org/apache/paimon/table/source/snapshot/DeltaFollowUpScanner.java",
+      "sha256": "9c13d7d15bed206588fae3c25901eae44a5c4be581bc0c8aee57527c1aa67794"
+    },
+    {
+      "path": "paimon-core/src/main/java/org/apache/paimon/append/cluster/IncrementalClusterManager.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-core/src/main/java/org/apache/paimon/append/cluster/IncrementalClusterManager.java",
+      "sha256": "dc7b9876bb0dfc659b8bffcfb66e9ed446fceb45934c2bef1895c1ca5168fc9c"
+    },
+    {
+      "path": "paimon-core/src/main/java/org/apache/paimon/append/cluster/IncrementalClusterStrategy.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-core/src/main/java/org/apache/paimon/append/cluster/IncrementalClusterStrategy.java",
+      "sha256": "68bb1e270a4adbb0d5d7b512f1920e36b19245b48f3b3a9dfb831b5de9ce82d4"
+    },
+    {
+      "path": "paimon-api/src/main/java/org/apache/paimon/CoreOptions.java",
+      "url": "https://github.com/apache/paimon/blob/245680119a4efee32a50d4abb8953624e8272ce6/paimon-api/src/main/java/org/apache/paimon/CoreOptions.java",
+      "sha256": "cd28d4976104afe8742856c811c29729eef64c39af87192a1cd3e90dc9e35f0d"
+    }
+  ]
+}

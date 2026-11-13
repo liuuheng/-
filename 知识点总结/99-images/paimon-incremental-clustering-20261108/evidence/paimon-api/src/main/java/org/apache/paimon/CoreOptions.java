@@ -1,0 +1,6294 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.paimon;
+
+import org.apache.paimon.annotation.Documentation;
+import org.apache.paimon.annotation.Documentation.ExcludeFromDocumentation;
+import org.apache.paimon.annotation.Documentation.Immutable;
+import org.apache.paimon.compression.CompressOptions;
+import org.apache.paimon.fileindex.FileIndexOptions;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.lookup.LookupStrategy;
+import org.apache.paimon.options.ConfigOption;
+import org.apache.paimon.options.ConfigOptions;
+import org.apache.paimon.options.ExpireConfig;
+import org.apache.paimon.options.MemorySize;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.options.VectorIndexOptions;
+import org.apache.paimon.options.description.DescribedEnum;
+import org.apache.paimon.options.description.Description;
+import org.apache.paimon.options.description.InlineElement;
+import org.apache.paimon.utils.JsonSerdeUtil;
+import org.apache.paimon.utils.MathUtils;
+import org.apache.paimon.utils.Pair;
+import org.apache.paimon.utils.StringUtils;
+
+import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.JsonNode;
+
+import javax.annotation.Nullable;
+
+import java.io.IOException;
+import java.io.Serializable;
+import java.lang.reflect.Field;
+import java.time.Duration;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static org.apache.paimon.CoreOptions.MergeEngine.FIRST_ROW;
+import static org.apache.paimon.CoreOptions.OrderType.HILBERT;
+import static org.apache.paimon.CoreOptions.OrderType.ORDER;
+import static org.apache.paimon.CoreOptions.OrderType.ZORDER;
+import static org.apache.paimon.options.ConfigOptions.key;
+import static org.apache.paimon.options.MemorySize.VALUE_128_MB;
+import static org.apache.paimon.options.MemorySize.VALUE_256_MB;
+import static org.apache.paimon.options.description.TextElement.text;
+import static org.apache.paimon.utils.Preconditions.checkArgument;
+
+/** Core options for paimon. */
+public class CoreOptions implements Serializable {
+
+    public static final String FIELDS_PREFIX = "fields";
+
+    public static final String FIELDS_SEPARATOR = ",";
+
+    public static final String AGG_FUNCTION = "aggregate-function";
+    public static final String DEFAULT_AGG_FUNCTION = "default-aggregate-function";
+
+    public static final String IGNORE_RETRACT = "ignore-retract";
+
+    public static final String NESTED_KEY = "nested-key";
+
+    public static final String NESTED_KEY_NULL_STRATEGY = "nested-key-null-strategy";
+
+    public static final String NESTED_SEQUENCE_FIELD = "nested-sequence-field";
+
+    public static final String COUNT_LIMIT = "count-limit";
+
+    public static final String DISTINCT = "distinct";
+
+    public static final String LIST_AGG_DELIMITER = "list-agg-delimiter";
+
+    public static final String MERGE_MAP_TS_FIELD = "ts-field";
+
+    public static final String MERGE_MAP_OVERWRITE_ON_EQUAL_TS = "overwrite-on-equal-ts";
+
+    public static final String MAP_STORAGE_LAYOUT = "map.storage-layout";
+
+    public static final String MAP_SHARED_SHREDDING_MAX_COLUMNS =
+            "map.shared-shredding.max-columns";
+
+    public static final String MAP_SHARED_SHREDDING_COLUMN_PLACEMENT_POLICY =
+            "map.shared-shredding.column-placement-policy";
+
+    public static final String FILE_INDEX = "file-index";
+
+    public static final String COLUMNS = "columns";
+
+    public static final String BLOB_DESCRIPTOR_PREFIX = "blob-descriptor.";
+
+    @Immutable
+    public static final ConfigOption<TableType> TYPE =
+            key("type")
+                    .enumType(TableType.class)
+                    .defaultValue(TableType.TABLE)
+                    .withDescription("Type of the table.");
+
+    public static final ConfigOption<Integer> BUCKET =
+            key("bucket")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            Description.builder()
+                                    .text("Bucket number for file store.")
+                                    .linebreak()
+                                    .text(
+                                            "It should either be equal to -1 (dynamic bucket mode), "
+                                                    + "-2 (postpone bucket mode), "
+                                                    + "or it must be greater than 0 (fixed bucket mode).")
+                                    .build());
+
+    @Immutable
+    public static final ConfigOption<String> BUCKET_KEY =
+            key("bucket-key")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Specify the paimon distribution policy. Data is assigned"
+                                                    + " to each bucket according to the hash value of bucket-key.")
+                                    .linebreak()
+                                    .text("If you specify multiple fields, delimiter is ','.")
+                                    .linebreak()
+                                    .text(
+                                            "If not specified, the primary key will be used; "
+                                                    + "if there is no primary key, the full row will be used.")
+                                    .build());
+
+    public static final ConfigOption<Boolean> BUCKET_APPEND_ORDERED =
+            key("bucket-append-ordered")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to ignore the order of the buckets when reading data from an append-only table.");
+
+    @Immutable
+    public static final ConfigOption<BucketFunctionType> BUCKET_FUNCTION_TYPE =
+            key("bucket-function.type")
+                    .enumType(BucketFunctionType.class)
+                    .defaultValue(BucketFunctionType.DEFAULT)
+                    .withDescription("The bucket function for paimon bucket.");
+
+    @Immutable
+    public static final ConfigOption<String> BUCKET_FUNCTION_PROVIDER =
+            key("bucket-function.provider")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional identifier of a BucketFunctionFactory discovered from the "
+                                    + "classpath. When configured, the provider is used by both "
+                                    + "writers and bucket predicate pruning and takes precedence "
+                                    + "over bucket-function.type.");
+
+    /** Paimon bucket function type. */
+    public enum BucketFunctionType implements DescribedEnum {
+        DEFAULT(
+                "default",
+                "The default bucket function which will use arithmetic: bucket_id = Math.abs(hash_bucket_binary_row % numBuckets) to get bucket."),
+        MOD(
+                "mod",
+                "The modulus bucket function which will use modulus arithmetic: bucket_id = Math.floorMod(bucket_key_value, numBuckets) to get bucket. "
+                        + "Note: the bucket key must be a single field of INT or BIGINT datatype."),
+        HIVE(
+                "hive",
+                "The hive bucket function which will use hive-compatible hash arithmetic to get bucket.");
+
+        private final String value;
+        private final String description;
+
+        BucketFunctionType(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        public static BucketFunctionType of(String bucketType) {
+            if (DEFAULT.value.equalsIgnoreCase(bucketType)) {
+                return DEFAULT;
+            } else if (MOD.value.equalsIgnoreCase(bucketType)) {
+                return MOD;
+            } else if (HIVE.value.equalsIgnoreCase(bucketType)) {
+                return HIVE;
+            }
+            throw new IllegalArgumentException(
+                    "cannot match type: " + bucketType + " for bucket function");
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    public static final ConfigOption<String> DATA_FILE_EXTERNAL_PATHS =
+            key("data-file.external-paths")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The external paths where the data of this table will be written, "
+                                    + "multiple elements separated by commas.");
+
+    public static final ConfigOption<ExternalPathStrategy> DATA_FILE_EXTERNAL_PATHS_STRATEGY =
+            key("data-file.external-paths.strategy")
+                    .enumType(ExternalPathStrategy.class)
+                    .defaultValue(ExternalPathStrategy.NONE)
+                    .withDescription(
+                            "The strategy of selecting an external path when writing data.");
+
+    public static final ConfigOption<String> DATA_FILE_EXTERNAL_PATHS_SPECIFIC_FS =
+            key("data-file.external-paths.specific-fs")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The specific file system of the external path when "
+                                    + DATA_FILE_EXTERNAL_PATHS_STRATEGY.key()
+                                    + " is set to "
+                                    + ExternalPathStrategy.SPECIFIC_FS
+                                    + ", should be the prefix scheme of the external path, now supported are s3 and oss.");
+
+    public static final ConfigOption<String> DATA_FILE_EXTERNAL_PATHS_WEIGHTS =
+            key("data-file.external-paths.weights")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The weights for external paths when "
+                                    + DATA_FILE_EXTERNAL_PATHS_STRATEGY.key()
+                                    + " is set to "
+                                    + ExternalPathStrategy.WEIGHTED
+                                    + ". "
+                                    + "Format: 'weight1,weight2,...' "
+                                    + "with weights corresponding to paths in "
+                                    + DATA_FILE_EXTERNAL_PATHS.key()
+                                    + " by order. "
+                                    + "Example: '10,5,15' means first path has weight 10, second 5, third 15. "
+                                    + "Weights must be positive integers.");
+
+    public static final ConfigOption<Boolean> COMPACTION_FORCE_REWRITE_ALL_FILES =
+            key("compaction.force-rewrite-all-files")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to force pick all files for a full compaction. Usually seen in a compaction task to external paths.");
+
+    @ExcludeFromDocumentation("Internal use only")
+    public static final ConfigOption<String> PATH =
+            key("path")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("The file path of this table in the filesystem.");
+
+    @ExcludeFromDocumentation("Avoid using deprecated options")
+    public static final ConfigOption<String> BRANCH =
+            key("branch").stringType().defaultValue("main").withDescription("Specify branch name.");
+
+    public static final ConfigOption<Boolean> LAKE_STREAM_ENABLED =
+            key("lakestream.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to enable lake-stream mode. When enabled, regular writes are "
+                                    + "routed to the Lakestream Store. The Lakestream Store's tiering "
+                                    + "service asynchronously writes data to Paimon. Reads from the "
+                                    + "original table name access only Paimon, while reads from the "
+                                    + "'$rt'-suffixed table name combine Paimon and Lakestream Store "
+                                    + "data.");
+
+    public static final ConfigOption<Boolean> CHAIN_TABLE_ENABLED =
+            key("chain-table.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether enabled chain table.");
+
+    public static final ConfigOption<String> SCAN_FALLBACK_SNAPSHOT_BRANCH =
+            key("scan.fallback-snapshot-branch")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When a batch job queries from a chain table, if a partition does not exist in the main branch, "
+                                    + "the reader will try to get this partition from chain snapshot branch.");
+
+    public static final ConfigOption<String> SCAN_FALLBACK_DELTA_BRANCH =
+            key("scan.fallback-delta-branch")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When a batch job queries from a chain table, if a partition does not exist in either main or snapshot branch, "
+                                    + "the reader will try to get this partition from chain snapshot and delta branch together.");
+
+    public static final ConfigOption<String> CHAIN_TABLE_CHAIN_PARTITION_KEYS =
+            key("chain-table.chain-partition-keys")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Partition keys that participate in chain logic. Must be a contiguous "
+                                    + "suffix of the table's partition keys. Comma-separated. "
+                                    + "If not set, all partition keys participate in chain.");
+
+    public static final ConfigOption<Boolean> CHAIN_TABLE_STREAMING_MERGE_SNAPSHOT =
+            key("chain-table.streaming.merge-snapshot")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If true, the starting phase of chain table streaming read performs "
+                                    + "anchor-based chain merging: for each group it merges the "
+                                    + "latest snapshot partition with delta partitions whose chain "
+                                    + "key is strictly greater than the snapshot chain key. This "
+                                    + "allows streaming readers to see cross-branch deletions and "
+                                    + "updates at the cost of a heavier startup scan. When false "
+                                    + "(default), the starting phase only reads the latest snapshot "
+                                    + "partition per group and later delta partitions as separate "
+                                    + "splits, which is lightweight but may not reflect cross-branch "
+                                    + "deletes.");
+
+    public static final ConfigOption<Boolean> CHAIN_TABLE_KEY_RANGE_SPLIT_ENABLED =
+            key("chain-table.split.key-range-enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "If true, a batch chain-table scan splits each bucket's snapshot and "
+                                    + "delta files into multiple splits by key range to improve read "
+                                    + "parallelism. Files with intersecting key ranges always stay in "
+                                    + "the same split so that all versions of a key across the "
+                                    + "snapshot and delta branches are merged together. Set to false "
+                                    + "to fall back to one split per bucket.");
+
+    public static final String FILE_FORMAT_ORC = "orc";
+    public static final String FILE_FORMAT_AVRO = "avro";
+    public static final String FILE_FORMAT_PARQUET = "parquet";
+    public static final String FILE_FORMAT_CSV = "csv";
+    public static final String FILE_FORMAT_TEXT = "text";
+    public static final String FILE_FORMAT_JSON = "json";
+    public static final String FILE_FORMAT_MOSAIC = "mosaic";
+
+    public static final ConfigOption<String> FILE_FORMAT =
+            key("file.format")
+                    .stringType()
+                    .defaultValue(FILE_FORMAT_PARQUET)
+                    .withDescription(
+                            "Specify the message format of data files, currently orc, parquet and avro are supported.");
+
+    public static final ConfigOption<Map<String, String>> FILE_COMPRESSION_PER_LEVEL =
+            key("file.compression.per.level")
+                    .mapType()
+                    .defaultValue(new HashMap<>())
+                    .withDescription(
+                            "Define different compression policies for different level, you can add the conf like this:"
+                                    + " 'file.compression.per.level' = '0:lz4,1:zstd'.");
+
+    public static final ConfigOption<Map<String, String>> FILE_FORMAT_PER_LEVEL =
+            key("file.format.per.level")
+                    .mapType()
+                    .defaultValue(new HashMap<>())
+                    .withDescription(
+                            "Define different file format for different level, you can add the conf like this:"
+                                    + " 'file.format.per.level' = '0:avro,3:parquet', if the file format for level is not provided, "
+                                    + "the default format which set by `"
+                                    + FILE_FORMAT.key()
+                                    + "` will be used.");
+
+    public static final ConfigOption<String> FILE_COMPRESSION =
+            key("file.compression")
+                    .stringType()
+                    .defaultValue("zstd")
+                    .withDescription(
+                            "Default file compression. For faster read and write, it is recommended to use zstd.");
+
+    public static final ConfigOption<Integer> FILE_COMPRESSION_ZSTD_LEVEL =
+            key("file.compression.zstd-level")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription(
+                            "Default file compression zstd level. For higher compression rates, it can be configured to 9, but the read and write speed will significantly decrease.");
+
+    public static final ConfigOption<String> DATA_FILE_PREFIX =
+            key("data-file.prefix")
+                    .stringType()
+                    .defaultValue("data-")
+                    .withDescription("Specify the file name prefix of data files.");
+
+    @Immutable
+    public static final ConfigOption<String> DATA_FILE_PATH_DIRECTORY =
+            key("data-file.path-directory")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Specify the path directory of data files.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_PREFIX =
+            key("changelog-file.prefix")
+                    .stringType()
+                    .defaultValue("changelog-")
+                    .withDescription("Specify the file name prefix of changelog files.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_FORMAT =
+            key("changelog-file.format")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specify the message format of changelog files, currently parquet, avro and orc are supported.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_COMPRESSION =
+            key("changelog-file.compression")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Changelog file compression.");
+
+    public static final ConfigOption<String> CHANGELOG_FILE_STATS_MODE =
+            key("changelog-file.stats-mode")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Changelog file metadata stats collection. none, counts, truncate(16), full is available.");
+
+    public static final ConfigOption<Boolean> FILE_SUFFIX_INCLUDE_COMPRESSION =
+            key("file.suffix.include.compression")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to add file compression type in the file name of data file and changelog file.");
+
+    public static final ConfigOption<MemorySize> FILE_BLOCK_SIZE =
+            key("file.block-size")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "File block size of format, default value of orc stripe is 64 MB, parquet row group is 128 MB, "
+                                    + "and avro block is 64 KB.");
+
+    public static final ConfigOption<MemorySize> FILE_INDEX_IN_MANIFEST_THRESHOLD =
+            key("file-index.in-manifest-threshold")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("500 B"))
+                    .withDescription(
+                            "The threshold to store file index bytes in manifest. Valid range: 0 to 2,147,483,647 bytes.");
+
+    public static final ConfigOption<Integer> FILE_INDEX_FORMAT_VERSION =
+            key("file-index.format.version")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription(
+                            "File index container version to write (1 or 2). Version 2 supports 64-bit payload positions and lengths.");
+
+    public static final ConfigOption<Boolean> FILE_INDEX_READ_IGNORE_UNKNOWN_TYPE =
+            key("file-index.read.ignore-unknown-type")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to ignore unregistered file index types when reading. "
+                                    + "If true, skip these indexes with a warning and retain all rows "
+                                    + "for them. Other indexes can still filter rows. "
+                                    + "If false, fail when reading an unregistered non-empty index.");
+
+    public static final ConfigOption<Boolean> FILE_INDEX_READ_ENABLED =
+            key("file-index.read.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether enabled read file index.");
+
+    public static final ConfigOption<String> VARIANT_SHREDDING_SCHEMA =
+            key("variant.shreddingSchema")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("parquet.variant.shreddingSchema")
+                    .withDescription("The Variant shredding schema for writing.");
+
+    public static final ConfigOption<Boolean> VARIANT_INFER_SHREDDING_SCHEMA =
+            key("variant.inferShreddingSchema")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to automatically infer the shredding schema when writing Variant columns.");
+
+    public static final ConfigOption<VariantShreddingInferenceMode>
+            VARIANT_SHREDDING_INFERENCE_MODE =
+                    key("variant.shredding.inferenceMode")
+                            .enumType(VariantShreddingInferenceMode.class)
+                            .defaultValue(VariantShreddingInferenceMode.PER_FILE)
+                            .withDescription(
+                                    "The Variant shredding inference mode. PER_FILE infers each "
+                                            + "file independently. ADAPTIVE reuses bounded evidence "
+                                            + "within one rolling writer and samples a smaller "
+                                            + "prefix after the first file.");
+
+    public static final ConfigOption<Integer> VARIANT_SHREDDING_MAX_SCHEMA_WIDTH =
+            key("variant.shredding.maxSchemaWidth")
+                    .intType()
+                    .defaultValue(300)
+                    .withDescription(
+                            "Maximum number of shredded fields allowed in an inferred schema.");
+
+    public static final ConfigOption<Integer> VARIANT_SHREDDING_MAX_SCHEMA_DEPTH =
+            key("variant.shredding.maxSchemaDepth")
+                    .intType()
+                    .defaultValue(50)
+                    .withDescription(
+                            "Maximum traversal depth in Variant values during schema inference.");
+
+    public static final ConfigOption<Double> VARIANT_SHREDDING_MIN_FIELD_CARDINALITY_RATIO =
+            key("variant.shredding.minFieldCardinalityRatio")
+                    .doubleType()
+                    .defaultValue(0.1)
+                    .withDescription(
+                            "Minimum fraction of rows that must contain a field for it to be shredded. "
+                                    + "Fields below this threshold will remain in the un-shredded Variant binary.");
+
+    public static final ConfigOption<Integer> VARIANT_SHREDDING_MAX_INFER_BUFFER_ROW =
+            key("variant.shredding.maxInferBufferRow")
+                    .intType()
+                    .defaultValue(4096)
+                    .withDescription("Maximum number of rows to buffer for schema inference.");
+
+    public static final ConfigOption<Integer> VARIANT_SHREDDING_ADAPTIVE_MAX_INFER_BUFFER_ROW =
+            key("variant.shredding.adaptive.maxInferBufferRow")
+                    .intType()
+                    .defaultValue(256)
+                    .withDescription(
+                            "Maximum number of prefix rows sampled after the first file in "
+                                    + "an adaptive Variant shredding inference session.");
+
+    public static final ConfigOption<Double> VARIANT_SHREDDING_ADAPTIVE_RETENTION_RATIO =
+            key("variant.shredding.adaptive.retentionRatio")
+                    .doubleType()
+                    .defaultValue(0.05)
+                    .withDescription(
+                            "Minimum combined presence ratio for retaining a Variant path selected "
+                                    + "in the previous file. This must not exceed "
+                                    + "'variant.shredding.minFieldCardinalityRatio'.");
+
+    public static final ConfigOption<String> MANIFEST_COMPRESSION =
+            key("manifest.compression")
+                    .stringType()
+                    .defaultValue("zstd")
+                    .withDescription("Default file compression for manifest.");
+
+    public static final ConfigOption<MemorySize> MANIFEST_TARGET_FILE_SIZE =
+            key("manifest.target-file-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(8))
+                    .withDescription("Suggested file size of a manifest file.");
+
+    public static final ConfigOption<Boolean> MANIFEST_SIDECAR_ENABLED =
+            key("manifest.sidecar.enabled")
+                    .booleanType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Whether to enable manifest sidecars with independent partition, row-id and bucket coverage. Defaults to manifest-sort.enabled when unset.");
+
+    public static final ConfigOption<MemorySize> MANIFEST_FULL_COMPACTION_FILE_SIZE =
+            key("manifest.full-compaction-threshold-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(16))
+                    .withDescription(
+                            "The size threshold for triggering full compaction of manifest.");
+
+    public static final ConfigOption<Boolean> MANIFEST_MERGE_SKIP_ON_WRITE_ONLY =
+            key("manifest.merge.skip-on-write-only")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to skip automatic manifest merging during commit when write-only is true."
+                                    + " This also skips automatic manifest sort rewrite."
+                                    + " Explicit manifest compaction is not affected.");
+
+    public static final ConfigOption<Integer> MANIFEST_MERGE_MIN_COUNT =
+            key("manifest.merge-min-count")
+                    .intType()
+                    .defaultValue(30)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "To avoid frequent manifest merges, this parameter specifies the minimum number "
+                                                    + "of ManifestFileMeta to merge.")
+                                    .linebreak()
+                                    .text(
+                                            "Note: when '"
+                                                    + "manifest-sort.enabled"
+                                                    + "' is true, this minimum-count gate is only "
+                                                    + "applied to the trailing sub-segment of a "
+                                                    + "section that exceeds '"
+                                                    + "manifest-sort.max-rewrite-size"
+                                                    + "'. Small under-budget sections are sorted "
+                                                    + "and rewritten directly, so two small manifest "
+                                                    + "files may be merged into one even when their "
+                                                    + "count is below this threshold and full "
+                                                    + "compaction is not triggered.")
+                                    .build());
+
+    public static final ConfigOption<Boolean> MANIFEST_SORT_ENABLED =
+            key("manifest-sort.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Whether to invoke manifest sort rewrite during commit."
+                                                    + " Non-partitioned tables can sort by bucket"
+                                                    + " with fixed or postponed buckets, or by RowID"
+                                                    + " for data evolution tables when all input"
+                                                    + " manifests contain RowID ranges.")
+                                    .linebreak()
+                                    .text(
+                                            "Note: enabling this changes the semantics of '"
+                                                    + "manifest.merge-min-count"
+                                                    + "'. In the sort rewrite path, small manifest "
+                                                    + "files within the rewrite budget are sorted "
+                                                    + "and merged directly, so the minimum-count "
+                                                    + "gate no longer prevents merging a small "
+                                                    + "number of under-budget manifest files when "
+                                                    + "full compaction is not triggered.")
+                                    .build());
+
+    public static final ConfigOption<String> MANIFEST_SORT_PARTITION_FIELD =
+            key("manifest-sort.partition-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Partition field name to sort manifest entries by. Validated by"
+                                    + " schema validation; must be unset for non-partitioned tables."
+                                    + " If not configured, defaults to the first partition field,"
+                                    + " or all partition fields for data evolution RowID sorting.");
+
+    public static final ConfigOption<MemorySize> MANIFEST_SORT_MAX_REWRITE_SIZE =
+            key("manifest-sort.max-rewrite-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(256))
+                    .withDescription(
+                            "Maximum total size of manifest files to rewrite in a single"
+                                    + " sort rewrite pass. Sections exceeding this limit are"
+                                    + " skipped. Set to a larger value to allow more aggressive"
+                                    + " sort rewriting. The cap only limits the sorted rewrite portion and full/minor cleanup may still happen beyond it.");
+
+    public static final ConfigOption<Boolean> MANIFEST_MERGE_OPTIMIZE_ENABLED =
+            key("manifest.merge-optimize.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to enable block-aware ordinary manifest merging. When"
+                                    + " disabled, ordinary manifest compaction uses the legacy"
+                                    + " full-entry merger.");
+
+    public static final ConfigOption<String> PARTITION_DEFAULT_NAME =
+            key("partition.default-name")
+                    .stringType()
+                    .defaultValue("__DEFAULT_PARTITION__")
+                    .withDescription(
+                            "The default partition name in case the dynamic partition"
+                                    + " column value is null/empty string.");
+
+    public static final ConfigOption<Boolean> PARTITION_GENERATE_LEGACY_NAME =
+            key("partition.legacy-name")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "The legacy partition name is using `toString` for all types. If false, using "
+                                    + "cast to string for all types.");
+
+    public static final ConfigOption<Integer> SNAPSHOT_NUM_RETAINED_MIN =
+            key("snapshot.num-retained.min")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription(
+                            "The minimum number of completed snapshots to retain. Should be greater than or equal to 1.");
+
+    @Documentation.OverrideDefault("infinite")
+    public static final ConfigOption<Integer> SNAPSHOT_NUM_RETAINED_MAX =
+            key("snapshot.num-retained.max")
+                    .intType()
+                    .defaultValue(Integer.MAX_VALUE)
+                    .withDescription(
+                            "The maximum number of completed snapshots to retain. Should be greater than or equal to the minimum number.");
+
+    public static final ConfigOption<Duration> SNAPSHOT_TIME_RETAINED =
+            key("snapshot.time-retained")
+                    .durationType()
+                    .defaultValue(Duration.ofHours(1))
+                    .withDescription("The maximum time of completed snapshots to retain.");
+
+    public static final ConfigOption<Integer> CHANGELOG_NUM_RETAINED_MIN =
+            key("changelog.num-retained.min")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The minimum number of completed changelog to retain. Should be greater than or equal to 1.");
+
+    public static final ConfigOption<Integer> CHANGELOG_NUM_RETAINED_MAX =
+            key("changelog.num-retained.max")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The maximum number of completed changelog to retain. Should be greater than or equal to the minimum number.");
+
+    public static final ConfigOption<Duration> CHANGELOG_TIME_RETAINED =
+            key("changelog.time-retained")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription("The maximum time of completed changelog to retain.");
+
+    public static final ConfigOption<ExpireExecutionMode> SNAPSHOT_EXPIRE_EXECUTION_MODE =
+            key("snapshot.expire.execution-mode")
+                    .enumType(ExpireExecutionMode.class)
+                    .defaultValue(ExpireExecutionMode.SYNC)
+                    .withDescription("Specifies the execution mode of expire.");
+
+    public static final ConfigOption<Integer> SNAPSHOT_EXPIRE_LIMIT =
+            key("snapshot.expire.limit")
+                    .intType()
+                    .defaultValue(50)
+                    .withDescription(
+                            "The maximum number of snapshots allowed to expire at a time.");
+
+    public static final ConfigOption<Boolean> SNAPSHOT_CLEAN_EMPTY_DIRECTORIES =
+            key("snapshot.clean-empty-directories")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withFallbackKeys("snapshot.expire.clean-empty-directories")
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Whether to try to clean empty directories when expiring snapshots, if enabled, please note:")
+                                    .list(
+                                            text("hdfs: may print exceptions in NameNode."),
+                                            text("oss/s3: may cause performance issue."))
+                                    .build());
+
+    public static final ConfigOption<Duration> CONTINUOUS_DISCOVERY_INTERVAL =
+            key("continuous.discovery-interval")
+                    .durationType()
+                    .defaultValue(Duration.ofSeconds(10))
+                    .withDescription("The discovery interval of continuous reading.");
+
+    public static final ConfigOption<Integer> SCAN_MAX_SPLITS_PER_TASK =
+            key("scan.max-splits-per-task")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription(
+                            "Max split size should be cached for one task while scanning. "
+                                    + "If splits size cached in enumerator are greater than tasks size multiply by this value, scanner will pause scanning.");
+
+    public static final ConfigOption<Integer> SCAN_BUCKET =
+            key("scan.bucket")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specify a single bucket to scan. This option filters manifest entries "
+                                    + "and only plans splits for the given bucket. It is only supported "
+                                    + "for fixed-bucket primary key tables (bucket > 0). It cannot be used "
+                                    + "with postpone bucket tables.");
+
+    @Immutable
+    public static final ConfigOption<MergeEngine> MERGE_ENGINE =
+            key("merge-engine")
+                    .enumType(MergeEngine.class)
+                    .defaultValue(MergeEngine.DEDUPLICATE)
+                    .withDescription("Specify the merge engine for table with primary key.");
+
+    public static final ConfigOption<Boolean> IGNORE_DELETE =
+            key("ignore-delete")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withFallbackKeys(
+                            "first-row.ignore-delete",
+                            "deduplicate.ignore-delete",
+                            "partial-update.ignore-delete")
+                    .withDescription("Whether to ignore delete records.");
+
+    public static final ConfigOption<Boolean> IGNORE_UPDATE_BEFORE =
+            key("ignore-update-before")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to ignore update-before records.");
+
+    public static final ConfigOption<SortEngine> SORT_ENGINE =
+            key("sort-engine")
+                    .enumType(SortEngine.class)
+                    .defaultValue(SortEngine.LOSER_TREE)
+                    .withDescription("Specify the sort engine for table with primary key.");
+
+    public static final ConfigOption<Integer> SORT_SPILL_THRESHOLD =
+            key("sort-spill-threshold")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "If the maximum number of sort readers exceeds this value, a spill will be attempted. "
+                                    + "This prevents too many readers from consuming too much memory and causing OOM.");
+
+    public static final ConfigOption<MemorySize> SORT_SPILL_BUFFER_SIZE =
+            key("sort-spill-buffer-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("64 mb"))
+                    .withDescription("Amount of data to spill records to disk in spilled sort.");
+
+    public static final ConfigOption<String> SPILL_COMPRESSION =
+            key("spill-compression")
+                    .stringType()
+                    .defaultValue("zstd")
+                    .withDescription(
+                            "Compression for spill, currently zstd, lzo and zstd are supported.");
+
+    public static final ConfigOption<Integer> SPILL_COMPRESSION_ZSTD_LEVEL =
+            key("spill-compression.zstd-level")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription(
+                            "Default spill compression zstd level. For higher compression rates, it can be configured to 9, but the read and write speed will significantly decrease.");
+
+    public static final ConfigOption<Boolean> WRITE_ONLY =
+            key("write-only")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withFallbackKeys("write.compaction-skip")
+                    .withDescription(
+                            "If set to true, compactions and snapshot expiration will be skipped. "
+                                    + "This option is used along with dedicated compact jobs. "
+                                    + "Automatic manifest merging is also skipped when manifest.merge.skip-on-write-only is true.");
+
+    public static final ConfigOption<MemorySize> SOURCE_SPLIT_TARGET_SIZE =
+            key("source.split.target-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(128))
+                    .withDescription("Target size of a source split when scanning a bucket.");
+
+    public static final ConfigOption<MemorySize> SOURCE_SPLIT_OPEN_FILE_COST =
+            key("source.split.open-file-cost")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(4))
+                    .withDescription(
+                            "Open file cost of a source file. It is used to avoid reading"
+                                    + " too many files with a source split, which can be very slow.");
+
+    public static final ConfigOption<MemorySize> WRITE_BUFFER_SIZE =
+            key("write-buffer-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("256 mb"))
+                    .withDescription(
+                            "Amount of data to build up in memory before converting to a sorted on-disk file.");
+
+    @Documentation.OverrideDefault("infinite")
+    public static final ConfigOption<MemorySize> WRITE_BUFFER_MAX_DISK_SIZE =
+            key("write-buffer-spill.max-disk-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.MAX_VALUE)
+                    .withDescription(
+                            "The max disk to use for write buffer spill. This only work when the write buffer spill is enabled");
+
+    public static final ConfigOption<Boolean> WRITE_BUFFER_SPILLABLE =
+            key("write-buffer-spillable")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether the write buffer can be spillable.");
+
+    public static final ConfigOption<Boolean> WRITE_BUFFER_FOR_APPEND =
+            key("write-buffer-for-append")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "This option only works for append-only table. Whether the write use write buffer to avoid out-of-memory error.");
+
+    public static final ConfigOption<Integer> WRITE_MAX_WRITERS_TO_SPILL =
+            key("write-max-writers-to-spill")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription(
+                            "When in batch append inserting, if the writer number is greater than this option, we open the buffer cache and spill function to avoid out-of-memory. ");
+
+    public static final ConfigOption<Integer> LOCAL_SORT_MAX_NUM_FILE_HANDLES =
+            key("local-sort.max-num-file-handles")
+                    .intType()
+                    .defaultValue(128)
+                    .withDescription(
+                            "The maximal fan-in for external merge sort. It limits the number of file handles. "
+                                    + "If it is too small, may cause intermediate merging. But if it is too large, "
+                                    + "it will cause too many files opened at the same time, consume memory and lead to random reading.");
+
+    public static final ConfigOption<MemorySize> PAGE_SIZE =
+            key("page-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("64 kb"))
+                    .withDescription("Memory page size.");
+
+    public static final ConfigOption<MemorySize> CACHE_PAGE_SIZE =
+            key("cache-page-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("64 kb"))
+                    .withDescription("Memory page size for caching.");
+
+    public static final ConfigOption<MemorySize> TARGET_FILE_SIZE =
+            key("target-file-size")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text("Target size of a file.")
+                                    .list(
+                                            text("primary key table: the default value is 128 MB."),
+                                            text("append table: the default value is 256 MB."))
+                                    .build());
+
+    public static final ConfigOption<Long> TARGET_FILE_ROW_NUM =
+            key("target-file-row-num")
+                    .longType()
+                    .defaultValue(Long.MAX_VALUE)
+                    .withDescription(
+                            "Target number of rows per newly written data file; a file rolls when "
+                                    + "this or target-file-size is reached, whichever comes first. "
+                                    + "Enforced at bundle granularity, so a bundled write may exceed it "
+                                    + "by up to one bundle. Only constrains files at write time: "
+                                    + "compaction is size-based and may merge into larger files, and "
+                                    + "data-evolution compaction produces a single file unless "
+                                    + "data-evolution.compaction.split-large-files is enabled. Bounds "
+                                    + "per-file rows for wide columns to avoid data-evolution OOM. "
+                                    + "PyPaimon supports this for data-evolution append tables; its "
+                                    + "primary-key, blob and vector writers still fail fast when it "
+                                    + "is enabled. Disabled by default.");
+
+    public static final ConfigOption<Double> COMPACTION_SMALL_FILE_RATIO =
+            key("compaction.small-file-ratio")
+                    .doubleType()
+                    .defaultValue(0.7)
+                    .withDescription(
+                            "The ratio of target file size. Files whose size is smaller than "
+                                    + "target-file-size * compaction.small-file-ratio will be "
+                                    + "picked for compaction rewriting. This avoids compacting the same "
+                                    + "file repeatedly due to compression inaccuracy causing output files "
+                                    + "to be slightly smaller than the target size.");
+
+    public static final ConfigOption<MemorySize> BLOB_TARGET_FILE_SIZE =
+            key("blob.target-file-size")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Target size of a blob file. Default is value of TARGET_FILE_SIZE.")
+                                    .build());
+
+    public static final ConfigOption<Boolean> BLOB_SPLIT_BY_FILE_SIZE =
+            key("blob.split-by-file-size")
+                    .booleanType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Whether to consider blob file size as a factor when performing scan splitting.")
+                                    .build());
+
+    // Keep this default in sync with BlobFormatWriter.DEFAULT_COPY_BUFFER_SIZE (= 4 * 1024).
+    public static final ConfigOption<MemorySize> BLOB_COPY_BUFFER_SIZE =
+            key("blob.copy-buffer-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("4 kb"))
+                    .withDescription(
+                            "Buffer size used when copying BLOB payloads into BLOB files.");
+
+    public static final ConfigOption<Integer> NUM_SORTED_RUNS_COMPACTION_TRIGGER =
+            key("num-sorted-run.compaction-trigger")
+                    .intType()
+                    .defaultValue(5)
+                    .withDescription(
+                            "The sorted run number to trigger compaction. Includes level0 files (one file one sorted run) and "
+                                    + "high-level runs (one level one sorted run).");
+
+    public static final ConfigOption<Integer> NUM_SORTED_RUNS_STOP_TRIGGER =
+            key("num-sorted-run.stop-trigger")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The number of sorted runs that trigger the stopping of writes,"
+                                    + " the default value is 'num-sorted-run.compaction-trigger' + 3.");
+
+    public static final ConfigOption<Integer> NUM_LEVELS =
+            key("num-levels")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Total level number, for example, there are 3 levels, including 0,1,2 levels.");
+
+    public static final ConfigOption<Boolean> COMMIT_FORCE_COMPACT =
+            key("commit.force-compact")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to force a compaction before commit.");
+
+    public static final ConfigOption<SequenceNumberInitMode> WRITE_SEQUENCE_NUMBER_INIT_MODE =
+            key("write.sequence-number-init-mode")
+                    .enumType(SequenceNumberInitMode.class)
+                    .defaultValue(SequenceNumberInitMode.SCAN)
+                    .withDescription(
+                            "Specify how to initialize the next sequence number for primary key "
+                                    + "table writers.");
+
+    public static final ConfigOption<Boolean> REST_COMMIT_LOCK_ENABLED =
+            key("rest.commit.lock-enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable the REST catalog's server-side table commit lease capability. "
+                                    + "Writers acquire a lease only when rest.commit.acquire-lock is enabled.");
+
+    public static final ConfigOption<Boolean> REST_COMMIT_ACQUIRE_LOCK =
+            key("rest.commit.acquire-lock")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether this writer acquires a REST commit lease for each publication "
+                                    + "attempt. Can be set dynamically for a writer and requires "
+                                    + "rest.commit.lock-enabled on the server-side table.");
+
+    public static final ConfigOption<Duration> COMMIT_TIMEOUT =
+            key("commit.timeout")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription("Timeout duration of retry when commit failed.");
+
+    public static final ConfigOption<Boolean> COMMIT_AUTO_ROLLBACK_ENABLED =
+            key("commit.auto-rollback.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Allow Java writers to roll back compaction on write conflicts. "
+                                    + "May delete snapshots and tags. Does not affect explicit rollback "
+                                    + "or Python writers.");
+
+    public static final ConfigOption<Integer> COMMIT_MAX_RETRIES =
+            key("commit.max-retries")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription("Maximum number of retries when commit failed.");
+
+    public static final ConfigOption<Duration> COMMIT_MIN_RETRY_WAIT =
+            key("commit.min-retry-wait")
+                    .durationType()
+                    .defaultValue(Duration.ofMillis(10))
+                    .withDescription("Min retry wait time when commit failed.");
+
+    public static final ConfigOption<Duration> COMMIT_MAX_RETRY_WAIT =
+            key("commit.max-retry-wait")
+                    .durationType()
+                    .defaultValue(Duration.ofSeconds(10))
+                    .withDescription("Max retry wait time when commit failed.");
+
+    public static final ConfigOption<Integer> COMPACTION_MAX_SIZE_AMPLIFICATION_PERCENT =
+            key("compaction.max-size-amplification-percent")
+                    .intType()
+                    .defaultValue(200)
+                    .withDescription(
+                            "The size amplification is defined as the amount (in percentage) of additional storage "
+                                    + "needed to store a single byte of data in the merge tree for changelog mode table.");
+
+    public static final ConfigOption<Boolean> COMPACTION_FORCE_UP_LEVEL_0 =
+            key("compaction.force-up-level-0")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If set to true, compaction strategy will always include all level 0 files in candidates.");
+
+    public static final ConfigOption<Integer> COMPACTION_SIZE_RATIO =
+            key("compaction.size-ratio")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription(
+                            "Percentage flexibility while comparing sorted run size for changelog mode table. If the candidate sorted run(s) "
+                                    + "size is 1% smaller than the next sorted run's size, then include next sorted run "
+                                    + "into this candidate set.");
+
+    public static final ConfigOption<Integer> COMPACT_OFFPEAK_START_HOUR =
+            key("compaction.offpeak.start.hour")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            "The start of off-peak hours, expressed as an integer between 0 and 23, inclusive"
+                                    + " Set to -1 to disable off-peak");
+
+    public static final ConfigOption<Integer> COMPACT_OFFPEAK_END_HOUR =
+            key("compaction.offpeak.end.hour")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            "The end of off-peak hours, expressed as an integer between 0 and 23, exclusive. Set"
+                                    + " to -1 to disable off-peak.");
+
+    public static final ConfigOption<Integer> COMPACTION_OFFPEAK_RATIO =
+            key("compaction.offpeak-ratio")
+                    .intType()
+                    .defaultValue(0)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Allows you to set a different (by default, more aggressive) percentage ratio for determining "
+                                                    + " whether larger sorted run's size are included in compactions during off-peak hours. Works in the "
+                                                    + " same way as compaction.size-ratio. Only applies if offpeak.start.hour and "
+                                                    + " offpeak.end.hour are also enabled. ")
+                                    .linebreak()
+                                    .text(
+                                            " For instance, if your cluster experiences low pressure between 2 AM  and 6 PM , "
+                                                    + " you can configure `compaction.offpeak.start.hour=2` and `compaction.offpeak.end.hour=18` to define this period as off-peak hours. "
+                                                    + " During these hours, you can increase the off-peak compaction ratio (e.g. `compaction.offpeak-ratio=20`) to enable more aggressive data compaction")
+                                    .build());
+
+    public static final ConfigOption<Duration> COMPACTION_OPTIMIZATION_INTERVAL =
+            key("compaction.optimization-interval")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Implying how often to perform an optimization compaction, this configuration is used to "
+                                    + "ensure the query timeliness of the read-optimized system table.");
+
+    public static final ConfigOption<MemorySize> COMPACTION_TOTAL_SIZE_THRESHOLD =
+            key("compaction.total-size-threshold")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When total size is smaller than this threshold, force a full compaction.");
+
+    public static final ConfigOption<MemorySize> COMPACTION_INCREMENTAL_SIZE_THRESHOLD =
+            key("compaction.incremental-size-threshold")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When incremental size is bigger than this threshold, force a full compaction.");
+
+    public static final ConfigOption<Integer> COMPACTION_MIN_FILE_NUM =
+            key("compaction.min.file-num")
+                    .intType()
+                    .defaultValue(5)
+                    .withDescription(
+                            "For file set [f_0,...,f_N], the minimum file number to trigger a compaction for "
+                                    + "append-only table.");
+
+    public static final ConfigOption<Integer> COMPACTION_FILE_NUM_LIMIT =
+            key("compaction.file-num-limit")
+                    .intType()
+                    .defaultValue(100_000)
+                    .withDescription(
+                            "To avoid OOM caused by scanning compaction files, you can use this option to limit the "
+                                    + "for unaware-bucket append table compaction.");
+
+    public static final ConfigOption<Double> COMPACTION_DELETE_RATIO_THRESHOLD =
+            key("compaction.delete-ratio-threshold")
+                    .doubleType()
+                    .defaultValue(0.2)
+                    .withDescription(
+                            "Ratio of the deleted rows in a data file to be forced compacted for "
+                                    + "append-only table.");
+
+    public static final ConfigOption<ChangelogProducer> CHANGELOG_PRODUCER =
+            key("changelog-producer")
+                    .enumType(ChangelogProducer.class)
+                    .defaultValue(ChangelogProducer.NONE)
+                    .withDescription(
+                            "Whether to double write to a changelog file. "
+                                    + "This changelog file keeps the details of data changes, "
+                                    + "it can be read directly during stream reads. This can be applied to tables with primary keys. ");
+
+    public static final ConfigOption<Boolean> CHANGELOG_PRODUCER_IGNORE_UPDATE_BEFORE =
+            key("changelog-producer.ignore-update-before")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to ignore update-before records in the changelog. "
+                                    + "When set to true, UPDATE_BEFORE (-U) records will not be written to changelog files. "
+                                    + "This configuration is only valid for the changelog-producer is lookup or full-compaction.");
+
+    public static final ConfigOption<Boolean> CHANGELOG_PRODUCER_IGNORE_DELETE =
+            key("changelog-producer.ignore-delete")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to ignore delete records in the changelog. "
+                                    + "When set to true, DELETE (-D) records will not be written to changelog files. "
+                                    + "This configuration is only valid for the changelog-producer is lookup or full-compaction.");
+
+    public static final ConfigOption<Boolean> CHANGELOG_PRODUCER_ROW_DEDUPLICATE =
+            key("changelog-producer.row-deduplicate")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to generate -U, +U changelog for the same record. This configuration is only valid for the changelog-producer is lookup or full-compaction.");
+
+    public static final ConfigOption<String> CHANGELOG_PRODUCER_ROW_DEDUPLICATE_IGNORE_FIELDS =
+            key("changelog-producer.row-deduplicate-ignore-fields")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Fields that are ignored for comparison while generating -U, +U changelog for the same record. This configuration is only valid for the changelog-producer.row-deduplicate is true.");
+
+    public static final ConfigOption<Boolean> TABLE_READ_SEQUENCE_NUMBER_ENABLED =
+            key("table-read.sequence-number.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to include the _SEQUENCE_NUMBER field when reading the audit_log or binlog "
+                                    + "system tables. This is only valid for primary key tables.");
+
+    @ExcludeFromDocumentation("Internal use only")
+    public static final ConfigOption<Boolean> KEY_VALUE_SEQUENCE_NUMBER_ENABLED =
+            key("key-value.sequence_number.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to include the _SEQUENCE_NUMBER field when reading key-value data. "
+                                    + "This is an internal option used by AuditLogTable and BinlogTable "
+                                    + "when table.read_sequence_number_enabled is set to true.");
+
+    public static final ConfigOption<String> SEQUENCE_FIELD =
+            key("sequence.field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The field that generates the sequence number for primary key table,"
+                                    + " the sequence number determines which data is the most recent.");
+
+    public static final ConfigOption<SortOrder> SEQUENCE_FIELD_SORT_ORDER =
+            key("sequence.field.sort-order")
+                    .enumType(SortOrder.class)
+                    .defaultValue(SortOrder.ASCENDING)
+                    .withDescription("Specify the order of sequence.field.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> SEQUENCE_SNAPSHOT_ORDERING =
+            key("sequence.snapshot-ordering")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When enabled, merge uses the commit snapshot id as the ordering key "
+                                    + "for primary-key conflicts: records from later snapshots "
+                                    + "always win. Designed for multi-writer scenarios on the same "
+                                    + "primary-key table where wall-clock sequence numbers cannot "
+                                    + "be globally ordered. The order of records within the same "
+                                    + "snapshot is not guaranteed. Mutually exclusive with "
+                                    + "sequence.field. Requires a primary-key table with "
+                                    + "write-only=true. Inline compaction is not allowed because "
+                                    + "snapshot ids are assigned only after commit. To compact such "
+                                    + "tables, run a dedicated compaction job/action with "
+                                    + "write-only=false.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> AGGREGATION_REMOVE_RECORD_ON_DELETE =
+            key("aggregation.remove-record-on-delete")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to remove the whole row in aggregation engine when -D records are received.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE =
+            key("partial-update.remove-record-on-delete")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to remove the whole row in partial-update engine when -D records are received.");
+
+    @Immutable
+    public static final ConfigOption<String> PARTIAL_UPDATE_REMOVE_RECORD_ON_SEQUENCE_GROUP =
+            key("partial-update.remove-record-on-sequence-group")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When -D records of the given sequence groups are received, remove the whole row.");
+
+    @Immutable
+    public static final ConfigOption<String> ROWKIND_FIELD =
+            key("rowkind.field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The field that generates the row kind for primary key table,"
+                                    + " the row kind determines which data is '+I', '-U', '+U' or '-D'.");
+
+    public static final ConfigOption<StartupMode> SCAN_MODE =
+            key("scan.mode")
+                    .enumType(StartupMode.class)
+                    .defaultValue(StartupMode.DEFAULT)
+                    .withFallbackKeys("log.scan")
+                    .withDescription("Specify the scanning behavior of the source.");
+
+    public static final ConfigOption<String> SCAN_TIMESTAMP =
+            key("scan.timestamp")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional timestamp used in case of \"from-timestamp\" scan mode, it will be automatically converted to timestamp in unix milliseconds, use local time zone");
+
+    public static final ConfigOption<Long> SCAN_TIMESTAMP_MILLIS =
+            key("scan.timestamp-millis")
+                    .longType()
+                    .noDefaultValue()
+                    .withFallbackKeys("log.scan.timestamp-millis")
+                    .withDescription(
+                            "Optional timestamp used in case of \"from-timestamp\" scan mode. "
+                                    + "If there is no snapshot earlier than this time, the earliest snapshot will be chosen.");
+
+    public static final ConfigOption<Long> SCAN_WATERMARK =
+            key("scan.watermark")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional watermark used in case of \"from-snapshot\" scan mode. "
+                                    + "If there is no snapshot later than this watermark, will throw an exceptions.");
+
+    public static final ConfigOption<Long> SCAN_FILE_CREATION_TIME_MILLIS =
+            key("scan.file-creation-time-millis")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "After configuring this time, only the data files created after this time will be read. "
+                                    + "It is independent of snapshots, but it is imprecise filtering (depending on whether "
+                                    + "or not compaction occurs).");
+
+    public static final ConfigOption<Long> SCAN_CREATION_TIME_MILLIS =
+            key("scan.creation-time-millis")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional timestamp used in case of \"from-creation-timestamp\" scan mode.");
+
+    public static final ConfigOption<Long> SCAN_SNAPSHOT_ID =
+            key("scan.snapshot-id")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional snapshot id used in case of \"from-snapshot\" or \"from-snapshot-full\" scan mode");
+
+    public static final ConfigOption<String> SCAN_TAG_NAME =
+            key("scan.tag-name")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional tag name used in case of \"from-snapshot\" scan mode.");
+
+    @ExcludeFromDocumentation("Internal use only")
+    public static final ConfigOption<String> SCAN_VERSION =
+            key("scan.version")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specify the time travel version string used in 'VERSION AS OF' syntax. "
+                                    + "We will use tag when both tag and snapshot of that version exist.");
+
+    public static final ConfigOption<Long> SCAN_BOUNDED_WATERMARK =
+            key("scan.bounded.watermark")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "End condition \"watermark\" for bounded streaming mode. Stream"
+                                    + " reading will end when a larger watermark snapshot is encountered.");
+
+    public static final ConfigOption<Integer> SCAN_MANIFEST_PARALLELISM =
+            key("scan.manifest.parallelism")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The parallelism of scanning manifest files, default value is the size of cpu processor. "
+                                    + "Note: Scale-up this parameter will increase memory usage while scanning manifest files. "
+                                    + "We can consider downsize it when we encounter an out of memory exception while scanning");
+
+    public static final ConfigOption<Integer> FORMAT_TABLE_SCAN_LIST_PARALLELISM =
+            key("format-table.scan.list-parallelism")
+                    .intType()
+                    .defaultValue(64)
+                    .withDescription(
+                            "The parallelism of listing partition files during split planning for "
+                                    + "a Format Table with catalog-managed partitions.");
+
+    public static final ConfigOption<Duration> STREAMING_READ_SNAPSHOT_DELAY =
+            key("streaming.read.snapshot.delay")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The delay duration of stream read when scan incremental snapshots.");
+
+    public static final ConfigOption<Boolean> SCAN_IGNORE_CORRUPT_FILE =
+            key("scan.ignore-corrupt-files")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Ignore corrupt files while scanning.");
+
+    public static final ConfigOption<Boolean> SCAN_IGNORE_LOST_FILE =
+            key("scan.ignore-lost-files")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Ignore lost files while scanning.");
+
+    public static final ConfigOption<Boolean> AUTO_CREATE =
+            key("auto-create")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to create underlying storage when reading and writing the table.");
+
+    public static final ConfigOption<Boolean> STREAMING_READ_OVERWRITE =
+            key("streaming-read-overwrite")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to read the changes from overwrite in streaming mode. Cannot be set to true when "
+                                    + "changelog producer is full-compaction or lookup because it will read duplicated changes.");
+
+    public static final ConfigOption<Boolean> STREAMING_READ_APPEND_OVERWRITE =
+            key("streaming-read-append-overwrite")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to read the delta from append table's overwrite commit in streaming mode.");
+
+    public static final ConfigOption<Boolean> DYNAMIC_PARTITION_OVERWRITE =
+            key("dynamic-partition-overwrite")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether only overwrite dynamic partition when overwriting a partitioned table with "
+                                    + "dynamic partition columns. Works only when the table has partition keys.");
+
+    /** The strategy for partition expiration. */
+    public enum PartitionExpireStrategy {
+        VALUES_TIME("values-time"),
+        UPDATE_TIME("update-time");
+
+        private final String value;
+
+        PartitionExpireStrategy(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+    }
+
+    public static final ConfigOption<String> PARTITION_EXPIRATION_STRATEGY =
+            key("partition.expiration-strategy")
+                    .stringType()
+                    .defaultValue("values-time")
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "The strategy determines how to extract the partition time and compare it with the current time.")
+                                    .list(
+                                            text(
+                                                    "\"values-time\": This strategy compares the time extracted from the partition value with the current time."),
+                                            text(
+                                                    "\"update-time\": This strategy compares the last update time of the partition with the current time."))
+                                    .build());
+
+    public static final ConfigOption<Duration> PARTITION_EXPIRATION_TIME =
+            key("partition.expiration-time")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The expiration interval of a partition. A partition will be expired if"
+                                    + " it's lifetime is over this value. Partition time is extracted from"
+                                    + " the partition value.");
+
+    public static final ConfigOption<Duration> PARTITION_EXPIRATION_CHECK_INTERVAL =
+            key("partition.expiration-check-interval")
+                    .durationType()
+                    .defaultValue(Duration.ofHours(1))
+                    .withDescription("The check interval of partition expiration.");
+
+    public static final ConfigOption<Integer> PARTITION_EXPIRATION_MAX_NUM =
+            key("partition.expiration-max-num")
+                    .intType()
+                    .defaultValue(100)
+                    .withDescription("The default deleted num of partition expiration.");
+
+    public static final ConfigOption<Boolean> PARTITION_EXPIRATION_RETAIN_LATEST =
+            key("partition.expiration-retain-latest")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to retain the latest partition when all partitions are expired. "
+                                    + "The latest partition is determined by the parsed partition time for values-time "
+                                    + "or the last file creation time for update-time. Retains one partition for the whole table. "
+                                    + "Supported by the built-in expiration strategies on normal tables. "
+                                    + "Explicit partition deletion and truncation are not affected.");
+
+    public static final ConfigOption<Integer> PARTITION_EXPIRATION_BATCH_SIZE =
+            key("partition.expiration-batch-size")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The batch size of partition expiration. "
+                                    + "By default, all partitions to be expired will be expired together, which may cause a risk of out-of-memory. "
+                                    + "Use this parameter to divide partition expiration process and mitigate memory pressure.");
+
+    public static final ConfigOption<Boolean> COMPACTION_SKIP_EXPIRED_PARTITIONS =
+            key("compaction.skip-expired-partitions")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to skip compacting partitions that are already expired "
+                                    + "according to 'partition.expiration-time'. "
+                                    + "Only effective when 'partition.expiration-time' is set "
+                                    + "and 'partition.expiration-strategy' is 'values-time'. "
+                                    + "Note: even when this option is enabled, expired partitions "
+                                    + "may still be deleted during the compaction commit phase "
+                                    + "as a side effect of partition expiration triggered by "
+                                    + "committing the remaining active partitions.");
+
+    public static final ConfigOption<String> PARTITION_TIMESTAMP_FORMATTER =
+            key("partition.timestamp-formatter")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "The formatter to format timestamp from string. It can be used"
+                                                    + " with 'partition.timestamp-pattern' to create a formatter"
+                                                    + " using the specified value.")
+                                    .list(
+                                            text(
+                                                    "Default formatter is 'yyyy-MM-dd HH:mm:ss' and 'yyyy-MM-dd'."),
+                                            text(
+                                                    "Supports multiple partition fields like '$year-$month-$day $hour:00:00'."),
+                                            text(
+                                                    "The timestamp-formatter is compatible with Java's DateTimeFormatter."))
+                                    .build());
+
+    public static final ConfigOption<String> PARTITION_TIMESTAMP_PATTERN =
+            key("partition.timestamp-pattern")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "You can specify a pattern to get a timestamp from partitions. "
+                                                    + "The formatter pattern is defined by 'partition.timestamp-formatter'.")
+                                    .list(
+                                            text("By default, read from the first field."),
+                                            text(
+                                                    "If the timestamp in the partition is a single field called 'dt', you can use '$dt'."),
+                                            text(
+                                                    "If it is spread across multiple fields for year, month, day, and hour,"
+                                                            + " you can use '$year-$month-$day $hour:00:00'."),
+                                            text(
+                                                    "If the timestamp is in fields dt and hour, you can use '$dt "
+                                                            + "$hour:00:00'."))
+                                    .build());
+
+    public static final ConfigOption<Boolean> PARTITION_TIMESTAMP_FORMAT_STRICT =
+            key("partition.timestamp-format.strict")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When enabled, if a partition value does not match the "
+                                    + "'partition.timestamp-formatter' or 'partition.timestamp-pattern' configuration, "
+                                    + "an error will be thrown during writing. "
+                                    + "This helps prevent dirty partition directories caused by incorrectly specified partition fields.");
+
+    public static final ConfigOption<Boolean> PARTITION_MARK_DONE_WHEN_END_INPUT =
+            ConfigOptions.key("partition.end-input-to-done")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether mark the done status to indicate that the data is ready when end input.");
+
+    public static final ConfigOption<Boolean> SCAN_PLAN_SORT_PARTITION =
+            key("scan.plan-sort-partition")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Whether to sort plan files by partition fields, this allows you to read"
+                                                    + " according to the partition order, even if your partition writes are out of order.")
+                                    .linebreak()
+                                    .text(
+                                            "It is recommended that you use this for streaming read of the 'append-only' table."
+                                                    + " By default, streaming read will read the full snapshot first. In order to"
+                                                    + " avoid the disorder reading for partitions, you can open this option.")
+                                    .build());
+
+    @Immutable
+    public static final ConfigOption<String> PRIMARY_KEY =
+            key("primary-key")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Define primary key by table options, cannot define primary key on DDL and table options at the same time.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> PRIMARY_KEY_NULLABLE =
+            key("primary-key.nullable")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether primary key fields can contain null values. Null values use null-safe equality when records are merged.");
+
+    @Immutable
+    public static final ConfigOption<String> PARTITION =
+            key("partition")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Define partition by table options, cannot define partition on DDL and table options at the same time.");
+
+    public static final ConfigOption<Float> LOOKUP_HASH_LOAD_FACTOR =
+            key("lookup.hash-load-factor")
+                    .floatType()
+                    .defaultValue(0.75F)
+                    .withDescription("The index load factor for lookup.");
+
+    public static final ConfigOption<Long> LOOKUP_CACHE_ROWS =
+            key("lookup.cache-rows")
+                    .longType()
+                    .defaultValue(10_000L)
+                    .withDescription("The maximum number of rows to store in the cache.");
+
+    public static final ConfigOption<Duration> LOOKUP_CONTINUOUS_DISCOVERY_INTERVAL =
+            key("lookup.continuous.discovery-interval")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The discovery interval of lookup continuous reading. This is used as an SQL hint. If it's not configured, the lookup function will fallback to 'continuous.discovery-interval'.");
+
+    public static final ConfigOption<Duration> LOOKUP_CACHE_FILE_RETENTION =
+            key("lookup.cache-file-retention")
+                    .durationType()
+                    .defaultValue(Duration.ofHours(1))
+                    .withDescription(
+                            "The cached files retention time for lookup. After the file expires,"
+                                    + " if there is a need for access, it will be re-read from the DFS to build"
+                                    + " an index on the local disk.");
+
+    @Documentation.OverrideDefault("infinite")
+    public static final ConfigOption<MemorySize> LOOKUP_CACHE_MAX_DISK_SIZE =
+            key("lookup.cache-max-disk-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.MAX_VALUE)
+                    .withDescription(
+                            "Max disk size for lookup cache, you can use this option to limit the use of local disks.");
+
+    public static final ConfigOption<String> LOOKUP_CACHE_SPILL_COMPRESSION =
+            key("lookup.cache-spill-compression")
+                    .stringType()
+                    .defaultValue("zstd")
+                    .withDescription(
+                            "Spill compression for lookup cache, currently zstd, none, lz4 and lzo are supported.");
+
+    public static final ConfigOption<MemorySize> LOOKUP_CACHE_MAX_MEMORY_SIZE =
+            key("lookup.cache-max-memory-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("256 mb"))
+                    .withDescription("Max memory size for lookup cache.");
+
+    public static final ConfigOption<Boolean> LOOKUP_CACHE_BLOB_DESCRIPTOR =
+            key("lookup.blob-as-descriptor")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When enabled, the lookup join stores only the BlobDescriptor "
+                                    + "(a lightweight reference containing file URI, offset, and length) "
+                                    + "for BLOB fields instead of the full blob bytes. This dramatically "
+                                    + "reduces local disk and memory usage for tables with large BLOB "
+                                    + "columns (e.g., images, videos). The downstream consumer receives "
+                                    + "the serialized BlobDescriptor bytes and can resolve the actual "
+                                    + "blob content on demand.");
+
+    public static final ConfigOption<Double> LOOKUP_CACHE_HIGH_PRIO_POOL_RATIO =
+            key("lookup.cache.high-priority-pool-ratio")
+                    .doubleType()
+                    .defaultValue(0.25)
+                    .withDescription(
+                            "The fraction of cache memory that is reserved for high-priority data like index, filter.");
+
+    public static final ConfigOption<Boolean> LOOKUP_CACHE_BLOOM_FILTER_ENABLED =
+            key("lookup.cache.bloom.filter.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether to enable the bloom filter for lookup cache.");
+
+    public static final ConfigOption<Double> LOOKUP_CACHE_BLOOM_FILTER_FPP =
+            key("lookup.cache.bloom.filter.fpp")
+                    .doubleType()
+                    .defaultValue(0.05)
+                    .withDescription(
+                            "Define the default false positive probability for lookup cache bloom filters.");
+
+    public static final ConfigOption<Boolean> LOOKUP_REMOTE_FILE_ENABLED =
+            key("lookup.remote-file.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to enable the remote file for lookup.");
+
+    public static final ConfigOption<Integer> LOOKUP_REMOTE_LEVEL_THRESHOLD =
+            key("lookup.remote-file.level-threshold")
+                    .intType()
+                    .defaultValue(Integer.MIN_VALUE)
+                    .withDescription(
+                            "Level threshold of lookup to generate remote lookup files. "
+                                    + "Level files below this threshold will not generate remote lookup files.");
+
+    public static final ConfigOption<Integer> READ_BATCH_SIZE =
+            key("read.batch-size")
+                    .intType()
+                    .defaultValue(1024)
+                    .withDescription("Read batch size for any file format if it supports.");
+
+    public static final ConfigOption<Integer> WRITE_BATCH_SIZE =
+            key("write.batch-size")
+                    .intType()
+                    .defaultValue(1024)
+                    .withFallbackKeys("orc.write.batch-size")
+                    .withDescription("Write batch size for any file format if it supports.");
+
+    public static final ConfigOption<MemorySize> WRITE_BATCH_MEMORY =
+            key("write.batch-memory")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("128 mb"))
+                    .withDescription("Write batch memory for any file format if it supports.");
+
+    public static final ConfigOption<String> CONSUMER_ID =
+            key("consumer-id")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Consumer id for recording the offset of consumption in the storage.");
+
+    public static final ConfigOption<Integer> FULL_COMPACTION_DELTA_COMMITS =
+            key("full-compaction.delta-commits")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "For streaming write, full compaction will be constantly triggered after delta commits. "
+                                    + "For batch write, full compaction will be triggered with each commit as long as this value is greater than 0.");
+
+    @ExcludeFromDocumentation("Internal use only")
+    public static final ConfigOption<StreamScanMode> STREAM_SCAN_MODE =
+            key("stream-scan-mode")
+                    .enumType(StreamScanMode.class)
+                    .defaultValue(StreamScanMode.NONE)
+                    .withDescription(
+                            "Only used to force TableScan to construct suitable 'StartingUpScanner' and 'FollowUpScanner' "
+                                    + "dedicated internal streaming scan.");
+
+    public static final ConfigOption<CompactionInitialScanMode>
+            CONTINUOUS_COMPACTION_INITIAL_SCAN_MODE =
+                    key("continuous-compaction.initial-scan-mode")
+                            .enumType(CompactionInitialScanMode.class)
+                            .defaultValue(CompactionInitialScanMode.EARLIEST)
+                            .withDescription(
+                                    "Initial snapshot mode for dedicated streaming compaction. "
+                                            + "When set to 'earliest' (the default), compaction starts from the earliest available snapshot "
+                                            + "if no COMPACT snapshot exists; when a COMPACT snapshot exists, compaction always resumes from the snapshot after it. "
+                                            + "When set to 'latest', the latest snapshot is read in ALL mode "
+                                            + "as the initial baseline and subsequent scans start from the next snapshot. "
+                                            + "The 'latest' mode skips historical snapshot changes and should only be used when historical "
+                                            + "changelog replay is not required.");
+
+    @ExcludeFromDocumentation("Internal use only")
+    public static final ConfigOption<BatchScanMode> BATCH_SCAN_MODE =
+            key("batch-scan-mode")
+                    .enumType(BatchScanMode.class)
+                    .defaultValue(BatchScanMode.NONE)
+                    .withDescription(
+                            "Only used to force TableScan to construct suitable 'StartingUpScanner' and 'FollowUpScanner' "
+                                    + "dedicated internal streaming scan.");
+
+    public static final ConfigOption<Duration> CONSUMER_EXPIRATION_TIME =
+            key("consumer.expiration-time")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The expiration interval of consumer files. A consumer file will be expired if "
+                                    + "it's lifetime after last modification is over this value.");
+
+    public static final ConfigOption<ConsumerMode> CONSUMER_CONSISTENCY_MODE =
+            key("consumer.mode")
+                    .enumType(ConsumerMode.class)
+                    .defaultValue(ConsumerMode.EXACTLY_ONCE)
+                    .withDescription("Specify the consumer consistency mode for table.");
+
+    public static final ConfigOption<Boolean> CONSUMER_IGNORE_PROGRESS =
+            key("consumer.ignore-progress")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to ignore consumer progress for the newly started job.");
+
+    public static final ConfigOption<Boolean> CONSUMER_CHANGELOG_ONLY =
+            key("consumer.changelog-only")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If true, consumer will only affect changelog expiration "
+                                    + "and will not prevent snapshot from being expired.");
+
+    public static final ConfigOption<Long> DYNAMIC_BUCKET_TARGET_ROW_NUM =
+            key("dynamic-bucket.target-row-num")
+                    .longType()
+                    .defaultValue(2_000_000L)
+                    .withDescription(
+                            "If the bucket is -1, for primary key table, is dynamic bucket mode, "
+                                    + "this option controls the target row number for one bucket.");
+
+    public static final int MAX_DYNAMIC_BUCKETS = Short.MAX_VALUE + 1;
+
+    @Immutable
+    public static final ConfigOption<Integer> DYNAMIC_BUCKET_INITIAL_BUCKETS =
+            key("dynamic-bucket.initial-buckets")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Initial buckets for a partition in assigner operator for dynamic bucket mode.");
+
+    public static final ConfigOption<Integer> DYNAMIC_BUCKET_MAX_BUCKETS =
+            key("dynamic-bucket.max-buckets")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            "Max buckets for a partition in dynamic bucket mode, It should "
+                                    + "either be equal to -1 (unlimited), or it must be between 1 and "
+                                    + MAX_DYNAMIC_BUCKETS
+                                    + " (fixed upper bound).");
+
+    public static final ConfigOption<Integer> DYNAMIC_BUCKET_ASSIGNER_PARALLELISM =
+            key("dynamic-bucket.assigner-parallelism")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Parallelism of assigner operator for dynamic bucket mode, it is"
+                                    + " related to the number of initialized bucket, too small will lead to"
+                                    + " insufficient processing speed of assigner.");
+
+    public static final ConfigOption<String> INCREMENTAL_BETWEEN =
+            key("incremental-between")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Read incremental changes between start snapshot (exclusive) and end snapshot (inclusive), "
+                                    + "for example, '5,10' means changes between snapshot 5 and snapshot 10.");
+
+    public static final ConfigOption<IncrementalBetweenScanMode> INCREMENTAL_BETWEEN_SCAN_MODE =
+            key("incremental-between-scan-mode")
+                    .enumType(IncrementalBetweenScanMode.class)
+                    .defaultValue(IncrementalBetweenScanMode.AUTO)
+                    .withDescription(
+                            "Scan kind when Read incremental changes between start snapshot (exclusive) and end snapshot (inclusive). ");
+
+    public static final ConfigOption<String> INCREMENTAL_BETWEEN_TIMESTAMP =
+            key("incremental-between-timestamp")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Read incremental changes between start timestamp (exclusive) and end timestamp (inclusive), "
+                                    + "for example, 't1,t2' means changes between timestamp t1 and timestamp t2.");
+
+    public static final ConfigOption<String> INCREMENTAL_TO_AUTO_TAG =
+            key("incremental-to-auto-tag")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Used to specify the end tag (inclusive), and Paimon will find an earlier tag and return changes between them. "
+                                    + "If the tag doesn't exist or the earlier tag doesn't exist, return empty. "
+                                    + "This option requires 'tag.creation-period' and 'tag.period-formatter' configured.");
+
+    public static final ConfigOption<Boolean> INCREMENTAL_BETWEEN_TAG_TO_SNAPSHOT =
+            key("incremental-between-tag-to-snapshot")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to read incremental changes between the snapshot corresponding to the tag.");
+
+    public static final ConfigOption<Boolean> END_INPUT_CHECK_PARTITION_EXPIRE =
+            key("end-input.check-partition-expire")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Optional endInput check partition expire used in case of batch mode or bounded stream.");
+
+    public static final String STATS_MODE_SUFFIX = "stats-mode";
+
+    public static final ConfigOption<String> METADATA_STATS_MODE =
+            key("metadata.stats-mode")
+                    .stringType()
+                    .defaultValue("truncate(16)")
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "The mode of metadata stats collection. none, counts, truncate(16), full is available.")
+                                    .linebreak()
+                                    .list(
+                                            text(
+                                                    "\"none\": means disable the metadata stats collection."))
+                                    .list(text("\"counts\" means only collect the null count."))
+                                    .list(
+                                            text(
+                                                    "\"full\": means collect the null count, min/max value."))
+                                    .list(
+                                            text(
+                                                    "\"truncate(16)\": means collect the null count, min/max value with truncated length of 16."))
+                                    .list(
+                                            text(
+                                                    "Field level stats mode can be specified by "
+                                                            + FIELDS_PREFIX
+                                                            + "."
+                                                            + "{field_name}."
+                                                            + STATS_MODE_SUFFIX))
+                                    .build());
+
+    public static final ConfigOption<Map<String, String>> METADATA_STATS_MODE_PER_LEVEL =
+            key("metadata.stats-mode.per.level")
+                    .mapType()
+                    .defaultValue(new HashMap<>())
+                    .withDescription(
+                            "Define different 'metadata.stats-mode' for different level, you can add the conf like this:"
+                                    + " 'metadata.stats-mode.per.level' = '0:none', if the metadata.stats-mode for level is not provided, "
+                                    + "the default mode which set by `"
+                                    + METADATA_STATS_MODE.key()
+                                    + "` will be used.");
+
+    public static final ConfigOption<Boolean> METADATA_STATS_DENSE_STORE =
+            key("metadata.stats-dense-store")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Whether to store statistic densely in metadata (manifest files), which"
+                                                    + " will significantly reduce the storage size of metadata when the"
+                                                    + " none statistic mode is set.")
+                                    .linebreak()
+                                    .text(
+                                            "Note, when this mode is enabled with 'metadata.stats-mode:none', the Paimon sdk in"
+                                                    + " reading engine requires at least version 0.9.1 or 1.0.0 or higher.")
+                                    .build());
+
+    public static final ConfigOption<Integer> METADATA_STATS_KEEP_FIRST_N_COLUMNS =
+            key("metadata.stats-keep-first-n-columns")
+                    .intType()
+                    .defaultValue(-1)
+                    .withDescription(
+                            "Define how many columns' stats are kept in metadata file from front to end. "
+                                    + "Default value '-1' means ignoring this config.");
+
+    public static final ConfigOption<String> COMMIT_CALLBACKS =
+            key("commit.callbacks")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription(
+                            "A list of commit callback classes to be called after a successful commit. "
+                                    + "Class names are connected with comma "
+                                    + "(example: com.test.CallbackA,com.sample.CallbackB).");
+
+    public static final ConfigOption<String> COMMIT_CALLBACK_PARAM =
+            key("commit.callback.#.param")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Parameter string for the constructor of class #. "
+                                    + "Callback class should parse the parameter by itself.");
+
+    public static final ConfigOption<String> TAG_CALLBACKS =
+            key("tag.callbacks")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription(
+                            "A list of commit callback classes to be called after a successful tag. "
+                                    + "Class names are connected with comma "
+                                    + "(example: com.test.CallbackA,com.sample.CallbackB).");
+
+    public static final ConfigOption<String> TAG_CALLBACK_PARAM =
+            key("tag.callback.#.param")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Parameter string for the constructor of class #. "
+                                    + "Callback class should parse the parameter by itself.");
+
+    public static final ConfigOption<String> PARTITION_MARK_DONE_ACTION =
+            key("partition.mark-done-action")
+                    .stringType()
+                    .defaultValue("success-file")
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Action to mark a partition done is to notify the downstream application that the partition"
+                                                    + " has finished writing, the partition is ready to be read.")
+                                    .linebreak()
+                                    .text("1. 'success-file': add '_success' file to directory.")
+                                    .linebreak()
+                                    .text(
+                                            "2. 'done-partition': add 'xxx.done' partition to metastore.")
+                                    .linebreak()
+                                    .text("3. 'mark-event': mark partition event to metastore.")
+                                    .linebreak()
+                                    .text(
+                                            "4. 'http-report': report partition mark done to remote http server.")
+                                    .linebreak()
+                                    .text(
+                                            "5. 'custom': use policy class to create a mark-partition policy.")
+                                    .linebreak()
+                                    .text(
+                                            "Both can be configured at the same time: 'done-partition,success-file,mark-event,custom'.")
+                                    .build());
+
+    public static final ConfigOption<String> PARTITION_MARK_DONE_CUSTOM_CLASS =
+            key("partition.mark-done-action.custom.class")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The partition mark done class for implement"
+                                    + " PartitionMarkDoneAction interface. Only work in custom mark-done-action.");
+
+    public static final ConfigOption<String> PARTITION_MARK_DONE_ACTION_URL =
+            key("partition.mark-done-action.http.url")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Mark done action will reports the partition to the remote http server, this can only be used by http-report partition mark done action.");
+
+    public static final ConfigOption<String> PARTITION_MARK_DONE_ACTION_PARAMS =
+            key("partition.mark-done-action.http.params")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Http client request parameters will be written to the request body, this can only be used by http-report partition mark done action.");
+
+    public static final ConfigOption<PartitionSinkStrategy> PARTITION_SINK_STRATEGY =
+            key("partition.sink-strategy")
+                    .enumType(PartitionSinkStrategy.class)
+                    .defaultValue(PartitionSinkStrategy.NONE)
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "This is only for partitioned append table or postpone pk table, and the purpose is to reduce small files and improve write performance."
+                                                    + " Through this repartitioning strategy to reduce the number of partitions written by each task to as few as possible.")
+                                    .list(
+                                            text(
+                                                    "none: Rebalanced or Forward partitioning, this is the default behavior,"
+                                                            + " this strategy is suitable for the number of partitions you write in a batch is much smaller than write parallelism."),
+                                            text(
+                                                    "hash: Hash the partitions value,"
+                                                            + " this strategy is suitable for the number of partitions you write in a batch is greater equals than write parallelism."),
+                                            text(
+                                                    "partition_dynamic: Dynamically adjusts shuffle strategy based on partition key traffic patterns."
+                                                            + " This mode monitors data distribution across partitions and rebalances load across downstream subtasks."
+                                                            + " Suitable when partition traffic is skewed and you want balanced write throughput."))
+                                    .build());
+
+    public static final ConfigOption<Boolean> METASTORE_PARTITIONED_TABLE =
+            key("metastore.partitioned-table")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to create this table as a partitioned table in metastore.\n"
+                                    + "For example, if you want to list all partitions of a Paimon table in Hive, "
+                                    + "you need to create this table as a partitioned table in Hive metastore.\n"
+                                    + "This config option does not affect the default filesystem metastore.\n"
+                                    + "For an internal format table in a REST catalog, it also makes the "
+                                    + "catalog own the table's partitions: a scan reads the partitions "
+                                    + "registered there and a write registers the ones it wrote, instead of "
+                                    + "listing the table directory.");
+
+    public static final ConfigOption<String> METASTORE_TAG_TO_PARTITION =
+            key("metastore.tag-to-partition")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Whether to create this table as a partitioned table for mapping non-partitioned table tags in metastore. "
+                                    + "This allows the Hive engine to view this table in a partitioned table view and "
+                                    + "use partitioning field to read specific partitions (specific tags).");
+
+    public static final ConfigOption<TagCreationMode> METASTORE_TAG_TO_PARTITION_PREVIEW =
+            key("metastore.tag-to-partition.preview")
+                    .enumType(TagCreationMode.class)
+                    .defaultValue(TagCreationMode.NONE)
+                    .withDescription(
+                            "Whether to preview tag of generated snapshots in metastore. "
+                                    + "This allows the Hive engine to query specific tag before creation.");
+
+    public static final ConfigOption<TagCreationMode> TAG_AUTOMATIC_CREATION =
+            key("tag.automatic-creation")
+                    .enumType(TagCreationMode.class)
+                    .defaultValue(TagCreationMode.NONE)
+                    .withDescription(
+                            "Whether to create tag automatically. And how to generate tags.");
+
+    public static final ConfigOption<Boolean> TAG_CREATE_SUCCESS_FILE =
+            key("tag.create-success-file")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to create tag success file for new created tags.");
+
+    public static final ConfigOption<TagCreationPeriod> TAG_CREATION_PERIOD =
+            key("tag.creation-period")
+                    .enumType(TagCreationPeriod.class)
+                    .defaultValue(TagCreationPeriod.DAILY)
+                    .withDescription("What frequency is used to generate tags.");
+
+    public static final ConfigOption<Duration> TAG_CREATION_DELAY =
+            key("tag.creation-delay")
+                    .durationType()
+                    .defaultValue(Duration.ofMillis(0))
+                    .withDescription(
+                            "How long is the delay after the period ends before creating a tag."
+                                    + " This can allow some late data to enter the Tag.");
+
+    public static final ConfigOption<TagPeriodFormatter> TAG_PERIOD_FORMATTER =
+            key("tag.period-formatter")
+                    .enumType(TagPeriodFormatter.class)
+                    .defaultValue(TagPeriodFormatter.WITH_DASHES)
+                    .withDescription("The date format for tag periods.");
+
+    public static final ConfigOption<Duration> TAG_PERIOD_DURATION =
+            key("tag.creation-period-duration")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The period duration for tag auto create periods.If user set it, tag.creation-period would be invalid.");
+
+    public static final ConfigOption<Integer> TAG_NUM_RETAINED_MAX =
+            key("tag.num-retained-max")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The maximum number of tags to retain. It only affects auto-created tags.");
+
+    public static final ConfigOption<Duration> TAG_DEFAULT_TIME_RETAINED =
+            key("tag.default-time-retained")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The default maximum time retained for newly created tags. "
+                                    + "It affects both auto-created tags and manually created (by procedure) tags.");
+
+    public static final ConfigOption<Boolean> TAG_TIME_EXPIRE_ENABLED =
+            key("tag.time-expire-enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether to enable tag expiration by retained time.");
+
+    public static final ConfigOption<Boolean> TAG_AUTOMATIC_COMPLETION =
+            key("tag.automatic-completion")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to automatically complete missing tags.");
+
+    public static final ConfigOption<String> TAG_BATCH_CUSTOMIZED_NAME =
+            key("tag.batch.customized-name")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Use customized name when creating tags in Batch mode.");
+
+    public static final ConfigOption<Duration> SCAN_PLAN_AUTO_TAG_FOR_READ_TIME_RETAINED =
+            key("scan.plan-auto-tag-for-read.time-retained")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When set, a temporary tag will be auto-created during batch scan planning "
+                                    + "to protect the read snapshot from expiration. The value specifies the tag's TTL. "
+                                    + "Should be longer than the longest expected batch read duration.");
+
+    public static final ConfigOption<Duration> SNAPSHOT_WATERMARK_IDLE_TIMEOUT =
+            key("snapshot.watermark-idle-timeout")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "In watermarking, if a source remains idle beyond the specified timeout duration, it triggers snapshot advancement and facilitates tag creation.");
+
+    public static final ConfigOption<Integer> PARQUET_ENABLE_DICTIONARY =
+            key("parquet.enable.dictionary")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription("Turn off the dictionary encoding for all fields in parquet.");
+
+    public static final ConfigOption<String> SINK_WATERMARK_TIME_ZONE =
+            key("sink.watermark-time-zone")
+                    .stringType()
+                    .defaultValue("UTC")
+                    .withDescription(
+                            "The time zone to parse the long watermark value to TIMESTAMP value."
+                                    + " The default value is 'UTC', which means the watermark is defined on TIMESTAMP column or not defined."
+                                    + " If the watermark is defined on TIMESTAMP_LTZ column, the time zone of watermark is user configured time zone,"
+                                    + " the value should be the user configured local time zone. The option value is either a full name"
+                                    + " such as 'America/Los_Angeles', or a custom timezone id such as 'GMT-08:00'.");
+
+    public static final ConfigOption<String> SINK_PROCESS_TIME_ZONE =
+            key("sink.process-time-zone")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The time zone to parse the long process time to TIMESTAMP value. The default value is JVM's "
+                                    + "default time zone. If you want to specify a time zone, you should either set a "
+                                    + "full name such as 'America/Los_Angeles' or a custom zone id such as 'GMT-08:00'. "
+                                    + "This option currently is used for extract tag name.");
+
+    public static final ConfigOption<MemorySize> LOCAL_MERGE_BUFFER_SIZE =
+            key("local-merge-buffer-size")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Local merge will buffer and merge input records "
+                                    + "before they're shuffled by bucket and written into sink. "
+                                    + "The buffer will be flushed when it is full.\n"
+                                    + "Mainly to resolve data skew on primary keys. "
+                                    + "We recommend starting with 64 mb when trying out this feature.");
+
+    public static final ConfigOption<Duration> CROSS_PARTITION_UPSERT_INDEX_TTL =
+            key("cross-partition-upsert.index-ttl")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The TTL in local index for cross partition upsert (primary keys not contain all partition fields), "
+                                    + "this can avoid maintaining too many indexes and lead to worse and worse performance, "
+                                    + "but please note that this may also cause data duplication.");
+
+    public static final ConfigOption<Integer> CROSS_PARTITION_UPSERT_BOOTSTRAP_PARALLELISM =
+            key("cross-partition-upsert.bootstrap-parallelism")
+                    .intType()
+                    .defaultValue(10)
+                    .withDescription(
+                            "The parallelism for bootstrap in a single task for cross partition upsert.");
+
+    public static final ConfigOption<Integer> ZORDER_VAR_LENGTH_CONTRIBUTION =
+            key("zorder.var-length-contribution")
+                    .intType()
+                    .defaultValue(8)
+                    .withDescription(
+                            "The bytes of types (CHAR, VARCHAR, BINARY, VARBINARY) devote to the zorder sort.");
+
+    public static final ConfigOption<MemorySize> FILE_READER_ASYNC_THRESHOLD =
+            key("file-reader-async-threshold")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(10))
+                    .withDescription("The threshold for read file async.");
+
+    public static final ConfigOption<Boolean> COMMIT_FORCE_CREATE_SNAPSHOT =
+            key("commit.force-create-snapshot")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "In streaming job, whether to force creating snapshot when there is no data in this write-commit phase.");
+
+    public static final ConfigOption<Boolean> DELETION_VECTORS_ENABLED =
+            key("deletion-vectors.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to enable deletion vectors mode. In this mode, index files containing deletion"
+                                    + " vectors are generated when data is written, which marks the data for deletion."
+                                    + " During read operations, by applying these index files, merging can be avoided.");
+
+    public static final ConfigOption<Boolean> DELETION_VECTORS_MODIFIABLE =
+            key("deletion-vectors.modifiable")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to enable modifying deletion vectors mode.");
+
+    public static final ConfigOption<MemorySize> DELETION_VECTOR_INDEX_FILE_TARGET_SIZE =
+            key("deletion-vector.index-file.target-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(2))
+                    .withDescription("The target size of deletion vector index file.");
+
+    public static final ConfigOption<Boolean> DELETION_VECTORS_MERGE_ON_READ =
+            key("deletion-vectors.merge-on-read")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "When deletion vectors are enabled, uncompacted files are not visible by default. "
+                                    + "Set this to true to enable merge-on-read, which makes uncompacted data "
+                                    + "visible at the cost of read performance. "
+                                    + "This option only affects batch scan visibility of DV level-0 files, "
+                                    + "it does not change streaming scan or changelog behavior.");
+
+    public static final ConfigOption<Boolean> DELETION_VECTOR_BITMAP64 =
+            key("deletion-vectors.bitmap64")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable 64 bit bitmap implementation. Note that only 64 bit bitmap implementation is compatible with Iceberg.");
+
+    public static final ConfigOption<Boolean> DELETION_FORCE_PRODUCE_CHANGELOG =
+            key("delete.force-produce-changelog")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Force produce changelog in delete sql, "
+                                    + "or you can use 'streaming-read-overwrite' to read changelog from overwrite commit.");
+
+    public static final ConfigOption<RangeStrategy> SORT_RANG_STRATEGY =
+            key("sort-compaction.range-strategy")
+                    .enumType(RangeStrategy.class)
+                    .defaultValue(RangeStrategy.SIZE)
+                    .withDescription(
+                            "The range strategy of sort compaction, the default value is size.\n"
+                                    + "The size strategy ranges by the data size allocated to each sorting task, which avoids "
+                                    + "the performance bottlenecks caused by uneven data size. "
+                                    + "The config can be set to quantity to range by the number of rows instead.");
+
+    public static final ConfigOption<Integer> SORT_COMPACTION_SAMPLE_MAGNIFICATION =
+            key("sort-compaction.local-sample.magnification")
+                    .intType()
+                    .defaultValue(1000)
+                    .withDescription(
+                            "The magnification of local sample for sort-compaction.The size of local sample is sink parallelism * magnification.");
+
+    public static final ConfigOption<Duration> RECORD_LEVEL_EXPIRE_TIME =
+            key("record-level.expire-time")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Record level expire time for primary key table, expiration happens in compaction, "
+                                    + "there is no strong guarantee to expire records in time. "
+                                    + "You must specific 'record-level.time-field' too.");
+
+    public static final ConfigOption<String> RECORD_LEVEL_TIME_FIELD =
+            key("record-level.time-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Time field for record level expire. It supports the following types: `timestamps in seconds with INT`,`timestamps in seconds with BIGINT`, `timestamps in milliseconds with BIGINT` or `timestamp`.");
+
+    public static final ConfigOption<String> FIELDS_DEFAULT_AGG_FUNC =
+            key(FIELDS_PREFIX + "." + DEFAULT_AGG_FUNCTION)
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Default aggregate function of all fields for partial-update and aggregate merge function.");
+
+    public static final ConfigOption<String> COMMIT_USER_PREFIX =
+            key("commit.user-prefix")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Specifies the commit user prefix.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> FORCE_LOOKUP =
+            key("force-lookup")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to force the use of lookup for compaction.");
+
+    public static final ConfigOption<Boolean> LOOKUP_WAIT =
+            key("lookup-wait")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withFallbackKeys("changelog-producer.lookup-wait")
+                    .withDescription(
+                            "When need to lookup, commit will wait for compaction by lookup.");
+
+    public static final ConfigOption<LookupCompactMode> LOOKUP_COMPACT =
+            key("lookup-compact")
+                    .enumType(LookupCompactMode.class)
+                    .defaultValue(LookupCompactMode.RADICAL)
+                    .withDescription("Lookup compact mode used for lookup compaction.");
+
+    public static final ConfigOption<Integer> LOOKUP_COMPACT_MAX_INTERVAL =
+            key("lookup-compact.max-interval")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The max interval for a gentle mode lookup compaction to be triggered. For every interval, "
+                                    + "a forced lookup compaction will be performed to flush L0 files to higher level. "
+                                    + "This option is only valid when lookup-compact mode is gentle.");
+
+    public static final ConfigOption<Integer> FILE_OPERATION_THREAD_NUM =
+            key("file-operation.thread-num")
+                    .intType()
+                    .noDefaultValue()
+                    .withFallbackKeys("delete-file.thread-num")
+                    .withDescription(
+                            "The maximum number of concurrent file operations. "
+                                    + "By default is the number of processors available to the Java virtual machine.");
+
+    public static final ConfigOption<String> SCAN_FALLBACK_BRANCH =
+            key("scan.fallback-branch")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When a batch job queries from a table, if a partition does not exist in the current branch, "
+                                    + "the reader will try to get this partition from this fallback branch.");
+
+    public static final ConfigOption<Boolean> SCAN_FALLBACK_BRANCH_READ_FAIL_FAST =
+            key("scan.fallback-branch.read-fail-fast")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to fail the read immediately when reading from a fallback branch throws. "
+                                    + "By default the failure is logged with the full stack trace and the reader "
+                                    + "falls through to the current branch, which can mask data issues. "
+                                    + "Set this to true to surface fallback branch errors to the caller instead.");
+
+    public static final ConfigOption<Boolean> SCAN_FALLBACK_BRANCH_ALLOW_EARLIEST_SNAPSHOT =
+            key("scan.fallback-branch.allow-earliest-snapshot")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to allow reading the earliest available snapshot of a fallback or primary branch "
+                                    + "when no snapshot exists at or before the current branch's requested snapshot time. "
+                                    + "This applies to snapshot-ID time travel, including numeric scan.version. "
+                                    + "By default, such reads fail unless the other branch has no snapshots. "
+                                    + "Enabling this option may read data committed after the requested time.");
+
+    public static final ConfigOption<String> SCAN_PRIMARY_BRANCH =
+            key("scan.primary-branch")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "When a batch job queries from a table, if a partition exists in the primary branch, "
+                                    + "the reader will read this partition from the primary branch. "
+                                    + "Otherwise, the reader will read this partition from the current branch.");
+
+    public static final ConfigOption<Boolean> ASYNC_FILE_WRITE =
+            key("async-file-write")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to enable asynchronous IO writing when writing files.");
+
+    public static final ConfigOption<Boolean> MANIFEST_DELETE_FILE_DROP_STATS =
+            key("manifest.delete-file-drop-stats")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "For DELETE manifest entry in manifest file, drop stats to reduce memory and storage."
+                                    + " Default value is false only for compatibility of old reader.");
+
+    public static final ConfigOption<Boolean> DATA_FILE_THIN_MODE =
+            key("data-file.thin-mode")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable data file thin mode to avoid duplicate columns storage.");
+
+    public static final ConfigOption<Duration> PARTITION_IDLE_TIME_TO_REPORT_STATISTIC =
+            key("partition.idle-time-to-report-statistic")
+                    .durationType()
+                    .defaultValue(Duration.ofMillis(0))
+                    .withDescription(
+                            "Set a time duration when a partition has no new data after this time duration, "
+                                    + "start to report the partition statistics to hms.");
+
+    public static final ConfigOption<Boolean> QUERY_AUTH_ENABLED =
+            key("query-auth.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enable query auth to give Catalog the opportunity to perform "
+                                    + "column level and row level permission validation on queries.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<String> MATERIALIZED_TABLE_DEFINITION_QUERY =
+            key("materialized-table.definition-query")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The definition query text of materialized table, text is expanded in contrast to the original SQL.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<String> MATERIALIZED_TABLE_INTERVAL_FRESHNESS =
+            key("materialized-table.interval-freshness")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "the freshness interval of materialized table which is used to determine the physical refresh mode.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<MaterializedTableIntervalFreshnessTimeUnit>
+            MATERIALIZED_TABLE_INTERVAL_FRESHNESS_TIME_UNIT =
+                    key("materialized-table.interval-freshness.time-unit")
+                            .enumType(MaterializedTableIntervalFreshnessTimeUnit.class)
+                            .noDefaultValue()
+                            .withDescription("The time unit of freshness interval.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<MaterializedTableRefreshMode>
+            MATERIALIZED_TABLE_LOGICAL_REFRESH_MODE =
+                    key("materialized-table.logical-refresh-mode")
+                            .enumType(MaterializedTableRefreshMode.class)
+                            .noDefaultValue()
+                            .withDescription("the logical refresh mode of materialized table.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<MaterializedTableRefreshMode> MATERIALIZED_TABLE_REFRESH_MODE =
+            key("materialized-table.refresh-mode")
+                    .enumType(MaterializedTableRefreshMode.class)
+                    .noDefaultValue()
+                    .withDescription("the physical refresh mode of materialized table.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<MaterializedTableRefreshStatus>
+            MATERIALIZED_TABLE_REFRESH_STATUS =
+                    key("materialized-table.refresh-status")
+                            .enumType(MaterializedTableRefreshStatus.class)
+                            .noDefaultValue()
+                            .withDescription("the refresh status of materialized table.");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<String> MATERIALIZED_TABLE_REFRESH_HANDLER_DESCRIPTION =
+            key("materialized-table.refresh-handler-description")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The summary description of materialized table's refresh handler");
+
+    @ExcludeFromDocumentation("Only used internally to support materialized table")
+    public static final ConfigOption<String> MATERIALIZED_TABLE_REFRESH_HANDLER_BYTES =
+            key("materialized-table.refresh-handler-bytes")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("The serialized refresh handler of materialized table.");
+
+    public static final ConfigOption<Boolean> DISABLE_ALTER_COLUMN_NULL_TO_NOT_NULL =
+            ConfigOptions.key("alter-column-null-to-not-null.disabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "If true, it disables altering column type from null to not null. Default is true. "
+                                    + "Users can disable this option to explicitly convert null column type to not null.");
+
+    public static final ConfigOption<Boolean> DISABLE_EXPLICIT_TYPE_CASTING =
+            ConfigOptions.key("disable-explicit-type-casting")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If true, it disables explicit type casting. For ex: it disables converting LONG type to INT type. "
+                                    + "Users can enable this option to disable explicit type casting");
+
+    public static final ConfigOption<Boolean> ADD_COLUMN_BEFORE_PARTITION =
+            ConfigOptions.key("add-column-before-partition")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If true, when adding a new column without specifying a position, "
+                                    + "the column will be placed before the first partition column "
+                                    + "instead of at the end of the schema. "
+                                    + "This only takes effect for partitioned tables.");
+
+    public static final ConfigOption<Long> COMMIT_LAST_SAFE_SNAPSHOT =
+            ConfigOptions.key("commit.last-safe-snapshot")
+                    .longType()
+                    .noDefaultValue()
+                    .withFallbackKeys("commit.strict-mode.last-safe-snapshot")
+                    .withDescription(
+                            "Snapshot preceding the earliest snapshot to inspect when committing. "
+                                    + "Only later snapshots are searched for this commit user's previous commits. "
+                                    + "This also provides the starting point for strict-mode checks when enabled. "
+                                    + "Keep this bound unchanged across retries and recovery.");
+
+    public static final ConfigOption<Boolean> COMMIT_STRICT_MODE_ENABLED =
+            ConfigOptions.key("commit.strict-mode.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to check concurrent snapshot changes after commit.last-safe-snapshot, "
+                                    + "when that bound is configured. Rejects COMPACT or OVERWRITE changes "
+                                    + "in the same partition, and fixed-bucket APPEND changes when committing OVERWRITE. "
+                                    + "Disabling this does not disable regular conflict detection or the history search bound.");
+
+    /** @deprecated Use {@link #COMMIT_LAST_SAFE_SNAPSHOT}. */
+    @Deprecated
+    public static final ConfigOption<Long> COMMIT_STRICT_MODE_LAST_SAFE_SNAPSHOT =
+            ConfigOptions.key("commit.strict-mode.last-safe-snapshot")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription("Deprecated alias for commit.last-safe-snapshot.");
+
+    public static final ConfigOption<String> CLUSTERING_COLUMNS =
+            key("clustering.columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("sink.clustering.by-columns")
+                    .withDescription(
+                            "Specifies the column name(s) used for comparison during range partitioning, in the format 'columnName1,columnName2'. "
+                                    + "If not set or set to an empty string, it indicates that the range partitioning feature is not enabled. "
+                                    + "This option will be effective only for append table without primary keys and batch execution mode.");
+
+    public static final ConfigOption<String> CLUSTERING_STRATEGY =
+            key("clustering.strategy")
+                    .stringType()
+                    .defaultValue("auto")
+                    .withFallbackKeys("sink.clustering.strategy")
+                    .withDescription(
+                            "Specifies the comparison algorithm used for range partitioning, including 'zorder', 'hilbert', and 'order', "
+                                    + "corresponding to the z-order curve algorithm, hilbert curve algorithm, and basic type comparison algorithm, "
+                                    + "respectively. When not configured, it will automatically determine the algorithm based on the number of columns "
+                                    + "in 'clustering.columns'. 'order' is used for 1 column, 'zorder' for less than 5 columns, "
+                                    + "and 'hilbert' for 5 or more columns.");
+
+    public static final ConfigOption<Boolean> CLUSTERING_INCREMENTAL =
+            key("clustering.incremental")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether enable incremental clustering.");
+
+    public static final ConfigOption<Integer> CLUSTERING_HISTORY_PARTITION_LIMIT =
+            key("clustering.history-partition.limit")
+                    .intType()
+                    .defaultValue(5)
+                    .withDescription(
+                            "The limit of history partition number for automatically performing full clustering.");
+
+    public static final ConfigOption<Duration> CLUSTERING_HISTORY_PARTITION_IDLE_TIME =
+            key("clustering.history-partition.idle-to-full-sort")
+                    .durationType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The duration after which a partition without new updates is considered a historical partition. "
+                                    + "Historical partitions will be automatically fully clustered during the cluster operation.");
+
+    public static final ConfigOption<Boolean> CLUSTERING_INCREMENTAL_OPTIMIZE_WRITE =
+            key("clustering.incremental.optimize-write")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether enable perform clustering before write phase when incremental clustering is enabled.");
+
+    public static final ConfigOption<ClusteringIncrementalMode> CLUSTERING_INCREMENTAL_MODE =
+            key("clustering.incremental.mode")
+                    .enumType(ClusteringIncrementalMode.class)
+                    .defaultValue(ClusteringIncrementalMode.GLOBAL_SORT)
+                    .withDescription(
+                            "The sort mode for incremental clustering compaction. "
+                                    + "'global-sort' (default) performs a global range shuffle so output files are globally ordered. "
+                                    + "'local-sort' skips the global shuffle and only sorts rows within each compaction task, "
+                                    + "producing files that are internally ordered. "
+                                    + "'local-sort' is cheaper and sufficient for Parquet lookup optimizations.");
+
+    public static final ConfigOption<MemorySize> LOCAL_KV_DB_BLOCK_SIZE =
+            key("local-kv-db.block-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("4 kb"))
+                    .withDescription("Block size of the local key-value database.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> ROW_TRACKING_ENABLED =
+            key("row-tracking.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether enable unique row id for append table.");
+
+    public static final ConfigOption<Boolean> ROW_TRACKING_PARTITION_GROUP_ON_COMMIT =
+            key("row-tracking.partition-group-on-commit")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "When row-tracking is enabled, whether to group new file metas by partition "
+                                    + "before commit, so that assigned row IDs are contiguous within each partition."
+                                    + "This is useful if you want to build global indices on this table. ");
+
+    @Immutable
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_ENABLED =
+            key("data-evolution.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether enable data evolution for row tracking table.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_WRITE_COLS_OPTIMIZATION_ENABLED =
+            key("data-evolution.write-cols-optimization.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to omit write columns from data file metadata when a data "
+                                    + "evolution file contains all non-dedicated columns. Readers "
+                                    + "always support the omitted metadata, but writing it is "
+                                    + "disabled by default for compatibility with older readers.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_NESTED_FIELD_ENABLED =
+            key("data-evolution.nested-field.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to enable sub-field-level data evolution for nested (struct) "
+                                    + "columns. When enabled, an update that only touches some "
+                                    + "sub-fields of a nested column writes an incremental file "
+                                    + "containing just those sub-fields (aligned by row id); when "
+                                    + "disabled, the whole top-level column is rewritten. Requires "
+                                    + "data-evolution.enabled=true. Mixed-version compatibility "
+                                    + "warning: once a file's write columns record a nested "
+                                    + "sub-field path (e.g. 'nest.a'), a reader, writer, compactor, "
+                                    + "or other maintenance job on an older version cannot "
+                                    + "reconstruct it. Every such component reading or writing this "
+                                    + "table must be upgraded before enabling this option, and "
+                                    + "downgrading the binary is unsafe once such files have been "
+                                    + "committed. This option may only be enabled through a persisted "
+                                    + "table-option change; dynamic overrides and disabling or removing "
+                                    + "the option after it has been enabled are not supported.");
+
+    public static final ConfigOption<Long> DATA_EVOLUTION_REASSIGN_SKIP_CONTIGUOUS_ROW_COUNT =
+            key("data-evolution.reassign.skip-contiguous-row-count")
+                    .longType()
+                    .defaultValue(20_000_000_000L)
+                    .withDescription(
+                            "Strictly contiguous same-partition logical row-id runs containing "
+                                    + "more than this number of rows are excluded from row-id "
+                                    + "reassignment. Set to 0 to disable this filtering.");
+
+    public static final ConfigOption<MemorySize> DATA_EVOLUTION_ROW_ID_CONFLICT_REWRITE_MAX_SIZE =
+            key("data-evolution.row-id-conflict-rewrite.max-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.ofMebiBytes(256))
+                    .withDescription(
+                            "Maximum total size of current data files whose row-id ranges PyPaimon "
+                                    + "may automatically rebase staged updates against when a "
+                                    + "concurrent compaction changes file boundaries. Set to 0 B "
+                                    + "to disable.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_ROW_SIDECAR_ENABLED =
+            key("data-evolution.row-sidecar.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to generate row-store sidecar files for normal data files "
+                                    + "on data evolution tables. The sidecar files are used to "
+                                    + "accelerate sparse row-id reads.");
+
+    public static final ConfigOption<Long> DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTED_ROWS =
+            key("data-evolution.row-sidecar.max-selected-rows")
+                    .longType()
+                    .defaultValue(4096L)
+                    .withDescription(
+                            "Maximum selected row count for reading a row-store sidecar file. "
+                                    + "The sidecar is used only when the selected rows are no more "
+                                    + "than this value and the selected row ratio is no more than "
+                                    + "data-evolution.row-sidecar.max-selection-ratio.");
+
+    public static final ConfigOption<Double> DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTION_RATIO =
+            key("data-evolution.row-sidecar.max-selection-ratio")
+                    .doubleType()
+                    .defaultValue(0.05d)
+                    .withDescription(
+                            "Maximum selected row ratio for reading a row-store sidecar file. "
+                                    + "The value must be in (0, 1]. The sidecar is used only when "
+                                    + "the selected row ratio is no more than this value and the "
+                                    + "selected row count is no more than "
+                                    + "data-evolution.row-sidecar.max-selected-rows.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_MERGED_READ_STATS_PUSHDOWN_ENABLED =
+            key("data-evolution.merged-read.stats-pushdown.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to push filters down into a row-id range whose columns are "
+                                    + "merged from several data files. The rows which may match "
+                                    + "are computed from the file statistics and page indexes of "
+                                    + "the files holding the latest values of the filtered "
+                                    + "columns, then every file of the range reads only these "
+                                    + "rows. Only Parquet files are supported.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_MERGE_INTO_FILE_PRUNING =
+            key("data-evolution.merge-into.file-pruning")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "If true, enables the file-level pruning step for MergeInto partial column "
+                                    + "update on data-evolution tables. "
+                                    + "Set this to false when most files in the target partition are expected "
+                                    + "to be updated, so that the overhead of collecting touched file IDs "
+                                    + "outweighs the benefit of pruning untouched files.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_MERGE_INTO_SOURCE_PERSIST =
+            key("data-evolution.merge-into.source-persist")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to persist source when process merge into action on data evolution table.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_COMPACTION_SPLIT_LARGE_FILES =
+            key("data-evolution.compaction.split-large-files")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether data-evolution compaction selects normal data files larger than "
+                                    + "data-evolution.compaction.large-file-ratio times target-file-size, "
+                                    + "even below compaction.min.file-num when dedicated-file ranges allow splitting. "
+                                    + "Normal output ranges are estimated from input file sizes and row counts "
+                                    + "toward target-file-size, then adjusted to avoid cutting through any "
+                                    + "BLOB or VECTOR file range. Actual output sizes may differ from the target. "
+                                    + "Row IDs and logical deletions are preserved, and associated "
+                                    + "BLOB and VECTOR files are not rewritten by this option.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_COMPACTION_DISCARD_CONFLICTING_TASKS =
+            key("data-evolution.compaction.discard-conflicting-tasks")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Skip complete data-evolution compaction tasks with row-range conflicts. "
+                                    + "Skipped inputs remain live for later compaction. Applies only to "
+                                    + "data-only compaction messages without row-id validation baselines.");
+
+    public static final ConfigOption<Double> DATA_EVOLUTION_COMPACTION_LARGE_FILE_RATIO =
+            key("data-evolution.compaction.large-file-ratio")
+                    .doubleType()
+                    .defaultValue(2.0d)
+                    .withDescription(
+                            "Size multiplier relative to target-file-size for selecting large normal "
+                                    + "files when data-evolution.compaction.split-large-files is enabled. "
+                                    + "An individual file must strictly exceed this threshold. The value "
+                                    + "must be finite and at least 1.0. This does not change the target "
+                                    + "size of compacted output files.");
+
+    public static final ConfigOption<Boolean> DATA_EVOLUTION_COMPACTION_REWRITE_ROW_IDS =
+            key("data-evolution.compaction.rewrite-row-ids")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Legacy compatibility option. Setting this option to true fails. "
+                                    + "Data-evolution compaction preserves row IDs and logical "
+                                    + "deletions. Use the 'materialize_deletion_vectors' procedure "
+                                    + "to apply deletion vectors to the latest table state and "
+                                    + "assign new row IDs. Reclaiming files retained by historical "
+                                    + "snapshots or tags requires snapshot expiration.");
+
+    public static final ConfigOption<Boolean> BLOB_COMPACTION_ENABLED =
+            key("blob-compaction.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to compact blob files when compacting a data evolution table.");
+
+    public static final ConfigOption<Boolean> SNAPSHOT_IGNORE_EMPTY_COMMIT =
+            key("snapshot.ignore-empty-commit")
+                    .booleanType()
+                    .noDefaultValue()
+                    .withDescription("Whether ignore empty commit.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> INDEX_FILE_IN_DATA_FILE_DIR =
+            key("index-file-in-data-file-dir")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether index file in data file directory.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_EXTERNAL_PATH =
+            key("global-index.external-path")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Global index root directory, if not set, the global index files will be stored under the <table-root-directory>/index.");
+
+    public static final ConfigOption<GlobalIndexColumnUpdateAction>
+            GLOBAL_INDEX_COLUMN_UPDATE_ACTION =
+                    key("global-index.column-update-action")
+                            .enumType(GlobalIndexColumnUpdateAction.class)
+                            .defaultValue(GlobalIndexColumnUpdateAction.THROW_ERROR)
+                            .withDescription(
+                                    "Defines the action to take when an update modifies columns that are covered by a global index. "
+                                            + "IGNORE leaves existing index files unchanged during the update and enables a later incremental index build to refresh affected row ranges.");
+
+    public static final ConfigOption<MemorySize> LOOKUP_MERGE_BUFFER_SIZE =
+            key("lookup.merge-buffer-size")
+                    .memoryType()
+                    .defaultValue(MemorySize.VALUE_8_MB)
+                    .withDescription("Buffer memory size for one key merging in lookup.");
+
+    public static final ConfigOption<Integer> LOOKUP_MERGE_RECORDS_THRESHOLD =
+            key("lookup.merge-records-threshold")
+                    .intType()
+                    .defaultValue(1024)
+                    .withDescription("Threshold for merging records to binary buffer in lookup.");
+
+    public static final ConfigOption<FormatTableImplementation> FORMAT_TABLE_IMPLEMENTATION =
+            key("format-table.implementation")
+                    .enumType(FormatTableImplementation.class)
+                    .defaultValue(FormatTableImplementation.PAIMON)
+                    .withDescription("Format table uses paimon or engine.");
+
+    public static final ConfigOption<Boolean> FORMAT_TABLE_PARTITION_ONLY_VALUE_IN_PATH =
+            ConfigOptions.key("format-table.partition-path-only-value")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Format table file path only contain partition value.");
+
+    public static final ConfigOption<String> FORMAT_TABLE_FILE_COMPRESSION =
+            ConfigOptions.key("format-table.file.compression")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys(FILE_COMPRESSION.key())
+                    .withDescription("Format table file compression.");
+
+    public static final ConfigOption<Boolean> FORMAT_TABLE_FILE_SUFFIX_ENABLED =
+            key("format-table.file.suffix.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to include the file format suffix in data file names written "
+                                    + "by the Paimon implementation of a format table. Compression "
+                                    + "suffixes are unaffected.");
+
+    public static final ConfigOption<String> FORMAT_TABLE_COMMIT_HIVE_SYNC_URI =
+            ConfigOptions.key("format-table.commit-hive-sync-url")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Format table commit hive sync uri.");
+
+    public static final ConfigOption<Integer> FORMAT_TABLE_COMMIT_CLEANUP_THREAD_NUM =
+            key("format-table.commit.cleanup-thread-num")
+                    .intType()
+                    .defaultValue(64)
+                    .withDescription(
+                            "The maximum number of concurrent deletions of old data files during "
+                                    + "overwrite commits for an internal Format Table with "
+                                    + "catalog-managed partitions. Supported values are 1 through "
+                                    + "64. Other Format Tables use serial cleanup. This limit uses "
+                                    + "a separate thread pool and is independent of "
+                                    + "file-operation.thread-num, so the total file-operation "
+                                    + "concurrency in one process may be the sum of both limits.");
+
+    public static final ConfigOption<Integer> FORMAT_TABLE_COMMIT_PUBLISH_THREAD_NUM =
+            key("format-table.commit.publish-thread-num")
+                    .intType()
+                    .defaultValue(64)
+                    .withDescription(
+                            "The maximum number of concurrent file publications during commits "
+                                    + "for a partitioned Format Table with catalog-managed "
+                                    + "partitions. Supported values are 1 through 64. Other Format "
+                                    + "Tables publish serially.");
+
+    @Immutable
+    public static final ConfigOption<String> BLOB_FIELD =
+            key("blob-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specifies column names that should be stored as blob type. "
+                                    + "This is used when you want to treat a BYTES column as a BLOB. "
+                                    + "Fields listed in blob-descriptor-field, blob-view-field, "
+                                    + "or video-frame-field are also treated as BLOB fields.");
+
+    @Immutable
+    public static final ConfigOption<String> VIDEO_FRAME_FIELD =
+            key("video-frame-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specifies comma-separated scalar BLOB fields whose logical rows are "
+                                    + "video frames. "
+                                    + "Complete encoded videos and embedded frame-run indexes are "
+                                    + "packed into '.video' files. Payload boundaries may be "
+                                    + "nested across fields, but every change must occur at a "
+                                    + "logical episode boundary. The "
+                                    + "first version supports append-only data-evolution tables "
+                                    + "and exact VideoFrameDescriptor input.");
+
+    @Immutable
+    public static final ConfigOption<String> BLOB_DESCRIPTOR_FIELD =
+            key("blob-descriptor-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("blob.stored-descriptor-fields")
+                    .withDescription(
+                            "Comma-separated field names to treat as BLOB fields and store "
+                                    + "as serialized BlobDescriptor bytes inline in data files.");
+
+    @Immutable
+    public static final ConfigOption<String> BLOB_VIEW_FIELD =
+            key("blob-view-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Comma-separated field names to treat as BLOB fields and store "
+                                    + "as serialized BlobViewStruct bytes inline in data files and "
+                                    + "resolve from upstream tables at read time.");
+
+    public static final ConfigOption<Boolean> BLOB_VIEW_RESOLVE_ENABLED =
+            key("blob-view.resolve.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to resolve blob-view-field values from upstream tables at "
+                                    + "read time. Set to false to preserve BlobViewStruct references "
+                                    + "when forwarding blob view values to another blob-view table.");
+
+    public static final ConfigOption<Boolean> BLOB_AS_DESCRIPTOR =
+            key("blob-as-descriptor")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Write blob field using blob descriptor rather than blob bytes.");
+
+    public static final ConfigOption<String> BLOB_DESCRIPTOR_SOURCE_TABLE =
+            key(BLOB_DESCRIPTOR_PREFIX + "source-table")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "The source table whose FileIO is used to read descriptor-backed BLOB "
+                                    + "content and copy it into the target table's managed BLOB "
+                                    + "storage. The table must belong to the current catalog and can "
+                                    + "include a branch suffix, for example db.table$branch_rt. This "
+                                    + "option is not supported for target tables without a catalog "
+                                    + "loader, including external tables in REST catalogs. When set, "
+                                    + "other blob-descriptor.* FileIO options are ignored.");
+
+    public static final ConfigOption<Boolean> BLOB_WRITE_NULL_ON_MISSING_FILE =
+            key("blob-write-null-on-missing-file")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to write NULL for a descriptor BLOB value when the "
+                                    + "referenced file or HTTP resource does not exist during Flink "
+                                    + "writes. When false, the write fails when the descriptor is "
+                                    + "read.");
+
+    public static final ConfigOption<Boolean> BLOB_WRITE_NULL_ON_FETCH_FAILURE =
+            key("blob-write-null-on-fetch-failure")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to write NULL for a descriptor BLOB value when the "
+                                    + "referenced resource cannot be fetched during Flink writes "
+                                    + "(e.g. invalid URI or HTTP errors other than 404). "
+                                    + "HTTP 404 is handled by 'blob-write-null-on-missing-file'. "
+                                    + "When false, the write fails when the descriptor is read.");
+
+    public static final ConfigOption<Boolean> COMMIT_DISCARD_DUPLICATE_FILES =
+            key("commit.discard-duplicate-files")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether discard duplicate files in commit.");
+
+    public static final ConfigOption<Boolean> POSTPONE_BATCH_WRITE_FIXED_BUCKET =
+            key("postpone.batch-write-fixed-bucket")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to write the data into fixed bucket for batch writing a postpone bucket table.");
+
+    public static final ConfigOption<Boolean> POSTPONE_MERGE_ON_READ =
+            key("postpone.merge-on-read")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to merge records in the postpone bucket with records in real buckets during batch reads. "
+                                    + "This requires an execution engine capable of routing and shuffling postpone records to their target real buckets.");
+
+    public static final ConfigOption<Integer> POSTPONE_BATCH_WRITE_FIXED_BUCKET_MAX_PARALLELISM =
+            key("postpone.batch-write-fixed-bucket.max-parallelism")
+                    .intType()
+                    .defaultValue(2048)
+                    .withDescription(
+                            "Maximum bucket number inferred for a partition by a fixed-bucket batch write. The inferred number is rounded up to a power of two before applying this limit.");
+
+    public static final ConfigOption<Integer>
+            POSTPONE_BATCH_WRITE_FIXED_BUCKET_RESCALE_LOAD_FACTOR =
+                    key("postpone.batch-write-fixed-bucket.rescale-load-factor")
+                            .intType()
+                            .defaultValue(32)
+                            .withDescription(
+                                    "Maximum tolerated ratio between the required bucket number and the existing bucket number before a fixed-bucket batch write enlarges the existing layout. Rescaling also requires the configured maximum parallelism to permit a larger bucket number.");
+
+    public static final ConfigOption<Integer> POSTPONE_DEFAULT_BUCKET_NUM =
+            key("postpone.default-bucket-num")
+                    .intType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Optional bucket number for partitions receiving real buckets for the first time and for fixed-bucket overwrite writes. The configured value is used exactly and takes precedence over automatic bucket estimation. When unset, Paimon estimates the bucket number from the target row count or target file size.");
+
+    public static final ConfigOption<Long> POSTPONE_TARGET_ROW_NUM_PER_BUCKET =
+            key("postpone.target-row-num-per-bucket")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Target postpone row count per bucket when estimating the required bucket number from staged or committed postpone files. When configured, this option takes precedence over 'postpone.target-size-per-bucket'.");
+
+    public static final ConfigOption<MemorySize> POSTPONE_TARGET_SIZE_PER_BUCKET =
+            key("postpone.target-size-per-bucket")
+                    .memoryType()
+                    .defaultValue(MemorySize.parse("1 gb"))
+                    .withDescription(
+                            "Target postpone file size per bucket when estimating the required bucket number from staged or committed postpone files. "
+                                    + "This option is ignored when 'postpone.target-row-num-per-bucket' is configured.");
+
+    public static final ConfigOption<Long> GLOBAL_INDEX_ROW_COUNT_PER_SHARD =
+            key("global-index.row-count-per-shard")
+                    .longType()
+                    .defaultValue(100000L)
+                    .withDescription("Row count per shard for global index.");
+
+    public static final ConfigOption<Integer> GLOBAL_INDEX_BUILD_MAX_SHARD =
+            key("global-index.build.max-shard")
+                    .intType()
+                    .defaultValue(32)
+                    .withDescription(
+                            "The preferred max number of shards for building global index. "
+                                    + "If the number of shards calculated by 'global-index.row-count-per-shard' "
+                                    + "exceeds this value, max-shard will be automatically increased "
+                                    + "to accommodate the data volume while keeping "
+                                    + "'global-index.row-count-per-shard' unchanged.");
+
+    public static final ConfigOption<Integer> GLOBAL_INDEX_BUILD_MAX_PARALLELISM =
+            key("global-index.build.max-parallelism")
+                    .intType()
+                    .defaultValue(4096)
+                    .withDescription(
+                            "The max parallelism of Flink/Spark for building global index.");
+
+    public static final ConfigOption<Boolean> GLOBAL_INDEX_QUERY_IN_READER_ENABLED =
+            key("global-index.query-in-reader.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Query supported scalar global indexes per data split in readers "
+                                    + "instead of materializing index results during scan planning.");
+
+    public static final ConfigOption<Boolean> GLOBAL_INDEX_ENABLED =
+            key("global-index.enabled")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription("Whether to enable global index for scan.");
+
+    public static final ConfigOption<GlobalIndexSearchMode> GLOBAL_INDEX_SEARCH_MODE =
+            key("global-index.search-mode")
+                    .enumType(GlobalIndexSearchMode.class)
+                    .noDefaultValue()
+                    .withDescription("Fallback search mode for global index queries.");
+
+    public static final ConfigOption<GlobalIndexSearchMode> SCALAR_INDEX_SEARCH_MODE =
+            key("scalar-index.search-mode")
+                    .enumType(GlobalIndexSearchMode.class)
+                    .defaultValue(GlobalIndexSearchMode.FAST)
+                    .withDescription("Search mode for scalar index queries.");
+
+    public static final ConfigOption<GlobalIndexSearchMode> VECTOR_INDEX_SEARCH_MODE =
+            key("vector-index.search-mode")
+                    .enumType(GlobalIndexSearchMode.class)
+                    .defaultValue(GlobalIndexSearchMode.FAST)
+                    .withDescription("Search mode for vector index queries.");
+
+    public static final ConfigOption<GlobalIndexSearchMode> FULL_TEXT_INDEX_SEARCH_MODE =
+            key("full-text-index.search-mode")
+                    .enumType(GlobalIndexSearchMode.class)
+                    .defaultValue(GlobalIndexSearchMode.FAST)
+                    .withDescription("Search mode for full-text index queries.");
+
+    public static final ConfigOption<Boolean> GLOBAL_INDEX_FILTER_REFINE_FROM_DATA =
+            key("global-index.filter.refine-from-data")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether a vector, hybrid or full-text search may read the filter "
+                                    + "columns of candidate rows to verify a row filter that the "
+                                    + "scalar global index can only answer with a superset, such "
+                                    + "as contains, ends-with or like on a BTree index or a "
+                                    + "conjunction with a member no index can evaluate. When "
+                                    + "false, such candidates are excluded from the search, which "
+                                    + "never returns a non-matching row but may return fewer than "
+                                    + "the requested top-k. When true, the read runs on the caller "
+                                    + "and may cover every candidate row.");
+
+    public static final ConfigOption<Integer> GLOBAL_INDEX_THREAD_NUM =
+            key("global-index.thread-num")
+                    .intType()
+                    .defaultValue(32)
+                    .withDescription(
+                            "The maximum number of concurrent threads for global index I/O. "
+                                    + "Must be greater than 0.");
+
+    public static final ConfigOption<Boolean> OVERWRITE_UPGRADE =
+            key("overwrite-upgrade")
+                    .booleanType()
+                    .defaultValue(true)
+                    .withDescription(
+                            "Whether to try upgrading the data files after overwriting a primary key table.");
+
+    public static final ConfigOption<Boolean> VISIBILITY_CALLBACK_ENABLED =
+            key("visibility-callback.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to enable the visibility wait callback that waits for compaction or global "
+                                    + "index build to complete after commit. This is useful for primary key tables "
+                                    + "with deletion vectors or postpone bucket mode and row-tracking tables with "
+                                    + "global indexes to ensure data visibility, only used for batch mode or bounded stream.");
+
+    public static final ConfigOption<Duration> VISIBILITY_CALLBACK_TIMEOUT =
+            key("visibility-callback.timeout")
+                    .durationType()
+                    .defaultValue(Duration.ofMinutes(30))
+                    .withDescription(
+                            "The maximum time to wait for compaction or global index build to complete when "
+                                    + "visibility callback is enabled. If the timeout is reached, an exception will "
+                                    + "be thrown.");
+
+    public static final ConfigOption<Duration> VISIBILITY_CALLBACK_CHECK_INTERVAL =
+            key("visibility-callback.check-interval")
+                    .durationType()
+                    .defaultValue(Duration.ofSeconds(10))
+                    .withDescription(
+                            "The interval for checking visibility when visibility-callback enabled.");
+
+    public static final ConfigOption<String> VECTOR_FILE_FORMAT =
+            key("vector.file.format")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("Specify the vector store file format.");
+
+    public static final ConfigOption<String> VECTOR_FIELD =
+            key("vector-field")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription(
+                            "Specifies column names that should be stored as vector type. "
+                                    + "This is used when you want to treat a ARRAY column as a VECTOR.");
+
+    public static final ConfigOption<MemorySize> VECTOR_TARGET_FILE_SIZE =
+            key("vector.target-file-size")
+                    .memoryType()
+                    .noDefaultValue()
+                    .withDescription(
+                            Description.builder()
+                                    .text(
+                                            "Target size of a vector-store file."
+                                                    + " Default is the same as TARGET_FILE_SIZE.")
+                                    .build());
+
+    public static final ConfigOption<Boolean> VECTOR_COMPACTION_ENABLED =
+            key("vector-compaction.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Whether to compact vector-store files when compacting a data evolution table.");
+
+    public static final ConfigOption<Boolean> VECTOR_SEARCH_DISTRIBUTE_ENABLED =
+            key("vector-search.distribute.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Whether to process distributed vector search.");
+
+    public static final ConfigOption<Integer> VECTOR_SEARCH_LATERAL_JOIN_BATCH_SIZE =
+            key("vector-search.lateral-join.batch-size")
+                    .intType()
+                    .defaultValue(256)
+                    .withDescription(
+                            "The batch size for lateral vector search. Each batch executes vector "
+                                    + "topK search and table lookup for multiple query vectors.");
+
+    public static final ConfigOption<Integer> PK_INDEX_BUILD_PARALLELISM =
+            key("pk-index.build.parallelism")
+                    .intType()
+                    .defaultValue(1)
+                    .withDescription(
+                            "The maximum number of concurrent primary-key index build tasks per "
+                                    + "writer instance, shared by its index columns and buckets. "
+                                    + "Must be greater than zero. Increasing this value may increase "
+                                    + "memory and I/O usage.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_BTREE_INDEX_COLUMNS =
+            key("global-index.btree.index-columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("global-index.btree.index-column", "pk-btree.index.columns")
+                    .withDescription("Comma-separated columns to index with BTree indexes.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_BITMAP_INDEX_COLUMNS =
+            key("global-index.bitmap.index-columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("global-index.bitmap.index-column", "pk-bitmap.index.columns")
+                    .withDescription("Comma-separated columns to index with Bitmap indexes.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_MULTIVALUE_INDEX_COLUMNS =
+            key("global-index.multivalue.index-columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys(
+                            "global-index.multivalue.index-column", "pk-multivalue.index.columns")
+                    .withDescription(
+                            "Comma-separated ARRAY columns to index with Multivalue indexes.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_FULL_TEXT_INDEX_COLUMNS =
+            key("global-index.full-text.index-columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys(
+                            "global-index.full-text.index-column", "pk-full-text.index.columns")
+                    .withDescription(
+                            "Comma-separated character columns to index with full-text indexes.");
+
+    public static final ConfigOption<String> GLOBAL_INDEX_FM_INDEX_COLUMNS =
+            key("global-index.fm.index-columns")
+                    .stringType()
+                    .noDefaultValue()
+                    .withFallbackKeys("global-index.fm.index-column", "pk-fm.index.columns")
+                    .withDescription("Comma-separated character columns to index with FM indexes.");
+
+    @Immutable
+    public static final ConfigOption<Boolean> PK_CLUSTERING_OVERRIDE =
+            key("pk-clustering-override")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "Enables clustering by non-primary key fields. When set to true, the physical"
+                                    + " sort order of data files is determined by the configured 'clustering.columns'"
+                                    + " instead of the primary key, optimizing query performance for non-PK columns.");
+
+    private final Options options;
+
+    public CoreOptions(Map<String, String> options) {
+        this(Options.fromMap(options));
+    }
+
+    public CoreOptions(Options options) {
+        this.options = options;
+    }
+
+    public static CoreOptions fromMap(Map<String, String> options) {
+        return new CoreOptions(options);
+    }
+
+    public Options toConfiguration() {
+        return options;
+    }
+
+    public Map<String, String> toMap() {
+        return options.toMap();
+    }
+
+    public int bucket() {
+        return options.get(BUCKET);
+    }
+
+    public BucketFunctionType bucketFunctionType() {
+        return options.get(BUCKET_FUNCTION_TYPE);
+    }
+
+    public Optional<String> bucketFunctionProvider() {
+        return options.getOptional(BUCKET_FUNCTION_PROVIDER);
+    }
+
+    public Path path() {
+        return path(options.toMap());
+    }
+
+    public String branch() {
+        return branch(options.toMap());
+    }
+
+    public static String branch(Map<String, String> options) {
+        if (options.containsKey(BRANCH.key())) {
+            return options.get(BRANCH.key());
+        }
+        return BRANCH.defaultValue();
+    }
+
+    public static Path path(Map<String, String> options) {
+        return new Path(options.get(PATH.key()));
+    }
+
+    public static Path path(Options options) {
+        return new Path(options.get(PATH));
+    }
+
+    public TableType type() {
+        return options.get(TYPE);
+    }
+
+    public boolean pkClusteringOverride() {
+        return options.get(PK_CLUSTERING_OVERRIDE);
+    }
+
+    public int localKvDbBlockSize() {
+        long bytes = options.get(LOCAL_KV_DB_BLOCK_SIZE).getBytes();
+        checkArgument(
+                bytes > 0 && bytes <= Integer.MAX_VALUE,
+                "'%s' must be between 1 byte and %s bytes, but was %s bytes.",
+                LOCAL_KV_DB_BLOCK_SIZE.key(),
+                Integer.MAX_VALUE,
+                bytes);
+        return (int) bytes;
+    }
+
+    public String formatType() {
+        return normalizeFileFormat(options.get(FILE_FORMAT));
+    }
+
+    public String fileFormatString() {
+        return normalizeFileFormat(options.get(FILE_FORMAT));
+    }
+
+    public String manifestCompression() {
+        return options.get(MANIFEST_COMPRESSION);
+    }
+
+    public MemorySize manifestTargetSize() {
+        return options.get(MANIFEST_TARGET_FILE_SIZE);
+    }
+
+    public boolean manifestSidecarEnabled() {
+        return options.getOptional(MANIFEST_SIDECAR_ENABLED).orElseGet(this::manifestSortEnabled);
+    }
+
+    public MemorySize manifestFullCompactionThresholdSize() {
+        return options.get(MANIFEST_FULL_COMPACTION_FILE_SIZE);
+    }
+
+    public boolean manifestSortEnabled() {
+        return options.get(MANIFEST_SORT_ENABLED);
+    }
+
+    @Nullable
+    public String manifestSortPartitionField() {
+        return options.get(MANIFEST_SORT_PARTITION_FIELD);
+    }
+
+    public long manifestSortMaxRewriteSize() {
+        return options.get(MANIFEST_SORT_MAX_REWRITE_SIZE).getBytes();
+    }
+
+    public boolean manifestMergeOptimizeEnabled() {
+        return options.get(MANIFEST_MERGE_OPTIMIZE_ENABLED);
+    }
+
+    public String partitionDefaultName() {
+        return options.get(PARTITION_DEFAULT_NAME);
+    }
+
+    public boolean legacyPartitionName() {
+        return options.get(PARTITION_GENERATE_LEGACY_NAME);
+    }
+
+    public boolean sortBySize() {
+        return options.get(SORT_RANG_STRATEGY) == RangeStrategy.SIZE;
+    }
+
+    public Integer getLocalSampleMagnification() {
+        return options.get(SORT_COMPACTION_SAMPLE_MAGNIFICATION);
+    }
+
+    public Map<Integer, String> fileCompressionPerLevel() {
+        Map<String, String> levelCompressions = options.get(FILE_COMPRESSION_PER_LEVEL);
+        return levelCompressions.entrySet().stream()
+                .collect(Collectors.toMap(e -> Integer.valueOf(e.getKey()), Map.Entry::getValue));
+    }
+
+    public Map<Integer, String> fileFormatPerLevel() {
+        Map<String, String> levelFormats = options.get(FILE_FORMAT_PER_LEVEL);
+        return levelFormats.entrySet().stream()
+                .collect(
+                        Collectors.toMap(
+                                e -> Integer.valueOf(e.getKey()),
+                                e -> normalizeFileFormat(e.getValue())));
+    }
+
+    public String statsMode() {
+        return options.get(METADATA_STATS_MODE);
+    }
+
+    public Map<Integer, String> statsModePerLevel() {
+        Map<String, String> statsPerLevel = options.get(METADATA_STATS_MODE_PER_LEVEL);
+        return statsPerLevel.entrySet().stream()
+                .collect(Collectors.toMap(e -> Integer.valueOf(e.getKey()), Map.Entry::getValue));
+    }
+
+    public static String normalizeFileFormat(String fileFormat) {
+        return StringUtils.isEmpty(fileFormat) ? fileFormat : fileFormat.toLowerCase(Locale.ROOT);
+    }
+
+    public String dataFilePrefix() {
+        return options.get(DATA_FILE_PREFIX);
+    }
+
+    @Nullable
+    public String dataFilePathDirectory() {
+        return options.get(DATA_FILE_PATH_DIRECTORY);
+    }
+
+    public String changelogFilePrefix() {
+        return options.get(CHANGELOG_FILE_PREFIX);
+    }
+
+    @Nullable
+    public String changelogFileFormat() {
+        return normalizeFileFormat(options.get(CHANGELOG_FILE_FORMAT));
+    }
+
+    @Nullable
+    public String changelogFileCompression() {
+        return options.get(CHANGELOG_FILE_COMPRESSION);
+    }
+
+    @Nullable
+    public String changelogFileStatsMode() {
+        return options.get(CHANGELOG_FILE_STATS_MODE);
+    }
+
+    public boolean fileSuffixIncludeCompression() {
+        return options.get(FILE_SUFFIX_INCLUDE_COMPRESSION);
+    }
+
+    public String fieldsDefaultFunc() {
+        return options.get(FIELDS_DEFAULT_AGG_FUNC);
+    }
+
+    public boolean primaryKeyNullable() {
+        return options.get(PRIMARY_KEY_NULLABLE);
+    }
+
+    public static boolean primaryKeyNullable(Map<String, String> options) {
+        return Options.fromMap(options)
+                .getBoolean(PRIMARY_KEY_NULLABLE.key(), PRIMARY_KEY_NULLABLE.defaultValue());
+    }
+
+    public static String createCommitUser(Options options) {
+        String commitUserPrefix = options.get(COMMIT_USER_PREFIX);
+        return commitUserPrefix == null
+                ? UUID.randomUUID().toString()
+                : commitUserPrefix + "_" + UUID.randomUUID();
+    }
+
+    public String createCommitUser() {
+        return createCommitUser(options);
+    }
+
+    public boolean definedAggFunc() {
+        if (options.contains(FIELDS_DEFAULT_AGG_FUNC)) {
+            return true;
+        }
+
+        for (String key : options.toMap().keySet()) {
+            if (key.startsWith(FIELDS_PREFIX) && key.endsWith(AGG_FUNCTION)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String fieldAggFunc(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + AGG_FUNCTION)
+                        .stringType()
+                        .noDefaultValue());
+    }
+
+    public boolean fieldAggIgnoreRetract(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + IGNORE_RETRACT)
+                        .booleanType()
+                        .defaultValue(false));
+    }
+
+    public boolean fieldSumAggFailOnOverflow(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + ".sum.fail-on-overflow")
+                        .booleanType()
+                        .defaultValue(false));
+    }
+
+    public boolean fieldProductAggFailOnOverflow(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + ".product.fail-on-overflow")
+                        .booleanType()
+                        .defaultValue(false));
+    }
+
+    public List<String> fieldNestedUpdateAggNestedKey(String fieldName) {
+        String keyString =
+                options.get(
+                        key(FIELDS_PREFIX + "." + fieldName + "." + NESTED_KEY)
+                                .stringType()
+                                .noDefaultValue());
+        if (keyString == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(keyString.split(",")).map(String::trim).collect(Collectors.toList());
+    }
+
+    public NestedKeyNullStrategy fieldNestedUpdateAggNestedKeyNullStrategy(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + NESTED_KEY_NULL_STRATEGY)
+                        .enumType(NestedKeyNullStrategy.class)
+                        .defaultValue(NestedKeyNullStrategy.MERGE));
+    }
+
+    public List<String> fieldNestedUpdateAggNestedSequenceField(String fieldName) {
+        String keyString =
+                options.get(
+                        key(FIELDS_PREFIX + "." + fieldName + "." + NESTED_SEQUENCE_FIELD)
+                                .stringType()
+                                .noDefaultValue());
+        if (keyString == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(keyString.split(",")).map(String::trim).collect(Collectors.toList());
+    }
+
+    public int fieldNestedUpdateAggCountLimit(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + COUNT_LIMIT)
+                        .intType()
+                        .defaultValue(Integer.MAX_VALUE));
+    }
+
+    public boolean fieldCollectAggDistinct(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + DISTINCT)
+                        .booleanType()
+                        .defaultValue(false));
+    }
+
+    public int fieldCollectAggCountLimit(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + COUNT_LIMIT)
+                        .intType()
+                        .defaultValue(Integer.MAX_VALUE));
+    }
+
+    public String fieldListAggDelimiter(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + LIST_AGG_DELIMITER)
+                        .stringType()
+                        .defaultValue(","));
+    }
+
+    @Nullable
+    public String fileCompression() {
+        return options.get(FILE_COMPRESSION);
+    }
+
+    public String formatTableFileCompression() {
+        if (options.containsKey(FILE_COMPRESSION.key())) {
+            return options.get(FILE_COMPRESSION.key());
+        } else if (options.containsKey(FORMAT_TABLE_FILE_COMPRESSION.key())) {
+            return options.get(FORMAT_TABLE_FILE_COMPRESSION.key());
+        } else if (options.containsKey("compression")) {
+            return options.get("compression");
+        } else {
+            String format = formatType();
+            switch (format) {
+                case FILE_FORMAT_PARQUET:
+                    return "snappy";
+                case FILE_FORMAT_AVRO:
+                case FILE_FORMAT_ORC:
+                case FILE_FORMAT_MOSAIC:
+                    return "zstd";
+                case FILE_FORMAT_CSV:
+                case FILE_FORMAT_TEXT:
+                case FILE_FORMAT_JSON:
+                    return "none";
+                default:
+                    throw new UnsupportedOperationException(
+                            String.format("Unsupported format: %s", format));
+            }
+        }
+    }
+
+    public String formatTableCommitSyncPartitionHiveUri() {
+        return options.get(FORMAT_TABLE_COMMIT_HIVE_SYNC_URI);
+    }
+
+    public int formatTableCommitCleanupThreadNum() {
+        int threadNum = options.get(FORMAT_TABLE_COMMIT_CLEANUP_THREAD_NUM);
+        checkArgument(
+                threadNum >= 1 && threadNum <= 64,
+                "Option %s must be between 1 and 64, but was %s.",
+                FORMAT_TABLE_COMMIT_CLEANUP_THREAD_NUM.key(),
+                threadNum);
+        return threadNum;
+    }
+
+    public int formatTableCommitPublishThreadNum() {
+        int threadNum = options.get(FORMAT_TABLE_COMMIT_PUBLISH_THREAD_NUM);
+        checkArgument(
+                threadNum >= 1 && threadNum <= 64,
+                "Option %s must be between 1 and 64, but was %s.",
+                FORMAT_TABLE_COMMIT_PUBLISH_THREAD_NUM.key(),
+                threadNum);
+        return threadNum;
+    }
+
+    public MemorySize fileReaderAsyncThreshold() {
+        return options.get(FILE_READER_ASYNC_THRESHOLD);
+    }
+
+    public int snapshotNumRetainMin() {
+        return options.get(SNAPSHOT_NUM_RETAINED_MIN);
+    }
+
+    public int snapshotNumRetainMax() {
+        return options.get(SNAPSHOT_NUM_RETAINED_MAX);
+    }
+
+    public Duration snapshotTimeRetain() {
+        return options.get(SNAPSHOT_TIME_RETAINED);
+    }
+
+    public int changelogNumRetainMin() {
+        return options.getOptional(CHANGELOG_NUM_RETAINED_MIN)
+                .orElse(options.get(SNAPSHOT_NUM_RETAINED_MIN));
+    }
+
+    public int changelogNumRetainMax() {
+        return options.getOptional(CHANGELOG_NUM_RETAINED_MAX)
+                .orElse(options.get(SNAPSHOT_NUM_RETAINED_MAX));
+    }
+
+    public Duration changelogTimeRetain() {
+        return options.getOptional(CHANGELOG_TIME_RETAINED)
+                .orElse(options.get(SNAPSHOT_TIME_RETAINED));
+    }
+
+    public boolean changelogLifecycleDecoupled() {
+        return changelogNumRetainMax() > snapshotNumRetainMax()
+                || changelogTimeRetain().compareTo(snapshotTimeRetain()) > 0
+                || changelogNumRetainMin() > snapshotNumRetainMin();
+    }
+
+    public ExpireExecutionMode snapshotExpireExecutionMode() {
+        return options.get(SNAPSHOT_EXPIRE_EXECUTION_MODE);
+    }
+
+    public int snapshotExpireLimit() {
+        return options.get(SNAPSHOT_EXPIRE_LIMIT);
+    }
+
+    public boolean cleanEmptyDirectories() {
+        return options.get(SNAPSHOT_CLEAN_EMPTY_DIRECTORIES);
+    }
+
+    public int fileOperationThreadNum() {
+        return options.getOptional(FILE_OPERATION_THREAD_NUM)
+                .orElseGet(() -> Runtime.getRuntime().availableProcessors());
+    }
+
+    public boolean endInputCheckPartitionExpire() {
+        return options.get(END_INPUT_CHECK_PARTITION_EXPIRE);
+    }
+
+    public ExpireConfig expireConfig() {
+        return ExpireConfig.builder()
+                .snapshotRetainMax(snapshotNumRetainMax())
+                .snapshotRetainMin(snapshotNumRetainMin())
+                .snapshotTimeRetain(snapshotTimeRetain())
+                .snapshotMaxDeletes(snapshotExpireLimit())
+                .changelogRetainMax(options.getOptional(CHANGELOG_NUM_RETAINED_MAX).orElse(null))
+                .changelogRetainMin(options.getOptional(CHANGELOG_NUM_RETAINED_MIN).orElse(null))
+                .changelogTimeRetain(options.getOptional(CHANGELOG_TIME_RETAINED).orElse(null))
+                .changelogMaxDeletes(snapshotExpireLimit())
+                .consumerChangelogOnly(consumerChangelogOnly())
+                .build();
+    }
+
+    public boolean manifestMergeSkipOnWriteOnly() {
+        return options.get(MANIFEST_MERGE_SKIP_ON_WRITE_ONLY);
+    }
+
+    public int manifestMergeMinCount() {
+        return options.get(MANIFEST_MERGE_MIN_COUNT);
+    }
+
+    public MergeEngine mergeEngine() {
+        return options.get(MERGE_ENGINE);
+    }
+
+    public boolean queryAuthEnabled() {
+        return options.get(QUERY_AUTH_ENABLED);
+    }
+
+    public boolean ignoreDelete() {
+        return options.get(IGNORE_DELETE);
+    }
+
+    public boolean ignoreUpdateBefore() {
+        return options.get(IGNORE_UPDATE_BEFORE);
+    }
+
+    public SortEngine sortEngine() {
+        return options.get(SORT_ENGINE);
+    }
+
+    public int sortSpillThreshold() {
+        Integer maxSortedRunNum = options.get(SORT_SPILL_THRESHOLD);
+        if (maxSortedRunNum == null) {
+            maxSortedRunNum = MathUtils.incrementSafely(numSortedRunStopTrigger());
+        }
+        checkArgument(maxSortedRunNum > 1, "The sort spill threshold cannot be smaller than 2.");
+        return maxSortedRunNum;
+    }
+
+    public long splitTargetSize() {
+        return options.get(SOURCE_SPLIT_TARGET_SIZE).getBytes();
+    }
+
+    public long splitOpenFileCost() {
+        return options.get(SOURCE_SPLIT_OPEN_FILE_COST).getBytes();
+    }
+
+    public long writeBufferSize() {
+        return options.get(WRITE_BUFFER_SIZE).getBytes();
+    }
+
+    public boolean writeBufferSpillable() {
+        return options.get(WRITE_BUFFER_SPILLABLE);
+    }
+
+    public MemorySize writeBufferSpillDiskSize() {
+        return options.get(WRITE_BUFFER_MAX_DISK_SIZE);
+    }
+
+    public boolean useWriteBufferForAppend() {
+        return options.get(WRITE_BUFFER_FOR_APPEND);
+    }
+
+    public PartitionSinkStrategy partitionSinkStrategy() {
+        return options.get(PARTITION_SINK_STRATEGY);
+    }
+
+    public int writeMaxWritersToSpill() {
+        return options.get(WRITE_MAX_WRITERS_TO_SPILL);
+    }
+
+    public long sortSpillBufferSize() {
+        return options.get(SORT_SPILL_BUFFER_SIZE).getBytes();
+    }
+
+    public CompressOptions spillCompressOptions() {
+        return new CompressOptions(
+                options.get(SPILL_COMPRESSION), options.get(SPILL_COMPRESSION_ZSTD_LEVEL));
+    }
+
+    public CompressOptions lookupCompressOptions() {
+        return new CompressOptions(
+                options.get(LOOKUP_CACHE_SPILL_COMPRESSION),
+                options.get(SPILL_COMPRESSION_ZSTD_LEVEL));
+    }
+
+    public Duration continuousDiscoveryInterval() {
+        return options.get(CONTINUOUS_DISCOVERY_INTERVAL);
+    }
+
+    public int scanSplitMaxPerTask() {
+        return options.get(SCAN_MAX_SPLITS_PER_TASK);
+    }
+
+    public int localSortMaxNumFileHandles() {
+        return options.get(LOCAL_SORT_MAX_NUM_FILE_HANDLES);
+    }
+
+    public int pageSize() {
+        return (int) options.get(PAGE_SIZE).getBytes();
+    }
+
+    public int cachePageSize() {
+        return (int) options.get(CACHE_PAGE_SIZE).getBytes();
+    }
+
+    public MemorySize lookupCacheMaxMemory() {
+        return options.get(LOOKUP_CACHE_MAX_MEMORY_SIZE);
+    }
+
+    public boolean lookupRemoteFileEnabled() {
+        return options.get(LOOKUP_REMOTE_FILE_ENABLED);
+    }
+
+    public int lookupRemoteLevelThreshold() {
+        return options.get(LOOKUP_REMOTE_LEVEL_THRESHOLD);
+    }
+
+    public double lookupCacheHighPrioPoolRatio() {
+        return options.get(LOOKUP_CACHE_HIGH_PRIO_POOL_RATIO);
+    }
+
+    public long targetFileSize(boolean hasPrimaryKey) {
+        return options.getOptional(TARGET_FILE_SIZE)
+                .orElse(hasPrimaryKey ? VALUE_128_MB : VALUE_256_MB)
+                .getBytes();
+    }
+
+    public long targetFileRowNum() {
+        return options.get(TARGET_FILE_ROW_NUM);
+    }
+
+    public long blobTargetFileSize() {
+        return options.getOptional(BLOB_TARGET_FILE_SIZE)
+                .map(MemorySize::getBytes)
+                .orElse(targetFileSize(false));
+    }
+
+    public int blobCopyBufferSize() {
+        return checkedBlobCopyBufferSize(options.get(BLOB_COPY_BUFFER_SIZE).getBytes());
+    }
+
+    /** Validates {@link #BLOB_COPY_BUFFER_SIZE} bytes and narrows to a positive int. */
+    public static int checkedBlobCopyBufferSize(long bytes) {
+        checkArgument(
+                bytes > 0 && bytes <= Integer.MAX_VALUE,
+                "'%s' must be between 1 byte and %s bytes, but was %s bytes.",
+                BLOB_COPY_BUFFER_SIZE.key(),
+                Integer.MAX_VALUE,
+                bytes);
+        return (int) bytes;
+    }
+
+    public boolean blobSplitByFileSize() {
+        return options.getOptional(BLOB_SPLIT_BY_FILE_SIZE)
+                .orElse(!options.get(BLOB_AS_DESCRIPTOR));
+    }
+
+    /**
+     * Resolve blob fields that should be stored as serialized descriptor bytes in data files.
+     *
+     * <p>If this option is not set, all blob fields are stored in '.blob' files by default.
+     */
+    public Set<String> blobDescriptorField() {
+        return parseCommaSeparatedSet(BLOB_DESCRIPTOR_FIELD);
+    }
+
+    /** Resolve scalar BLOB fields stored as frame runs in video pack files. */
+    public Set<String> videoFrameFields() {
+        return parseCommaSeparatedSet(VIDEO_FRAME_FIELD);
+    }
+
+    /**
+     * Resolve the sole scalar BLOB field stored as frame runs in video pack files.
+     *
+     * @deprecated Use {@link #videoFrameFields()}.
+     */
+    @Deprecated
+    public Optional<String> videoFrameField() {
+        Set<String> fields = videoFrameFields();
+        checkArgument(
+                fields.size() <= 1,
+                "'%s' configures multiple fields %s; use videoFrameFields().",
+                VIDEO_FRAME_FIELD.key(),
+                fields);
+        return fields.stream().findFirst();
+    }
+
+    /**
+     * Resolve blob fields that should be stored as serialized view metadata in data files.
+     *
+     * <p>If this option is set, the listed BLOB fields store {@code BlobViewStruct} bytes inline
+     * and resolve the actual blob content from upstream tables at read time.
+     */
+    public Set<String> blobViewField() {
+        return parseCommaSeparatedSet(BLOB_VIEW_FIELD);
+    }
+
+    /** Whether to resolve blob view references at read time. */
+    public boolean blobViewResolveEnabled() {
+        return options.get(BLOB_VIEW_RESOLVE_ENABLED);
+    }
+
+    /** Resolve blob fields that are stored inline in normal data files. */
+    public Set<String> blobInlineField() {
+        Set<String> fields = new HashSet<>(blobDescriptorField());
+        fields.addAll(blobViewField());
+        return fields;
+    }
+
+    private Set<String> parseCommaSeparatedSet(ConfigOption<String> option) {
+        return options.getOptional(option)
+                .map(
+                        s ->
+                                Arrays.stream(s.split(","))
+                                        .map(String::trim)
+                                        .filter(str -> !str.isEmpty())
+                                        .collect(Collectors.toSet()))
+                .orElse(Collections.emptySet());
+    }
+
+    public long compactionFileSize(boolean hasPrimaryKey) {
+        // file size to join the compaction, we don't process on middle file size to avoid
+        // compact a same file twice (the compression is not calculate so accurately. the output
+        // file maybe be less than target file generated by rolling file write).
+        return (long) (targetFileSize(hasPrimaryKey) * options.get(COMPACTION_SMALL_FILE_RATIO));
+    }
+
+    public int numSortedRunCompactionTrigger() {
+        return options.get(NUM_SORTED_RUNS_COMPACTION_TRIGGER);
+    }
+
+    @Nullable
+    public Duration optimizedCompactionInterval() {
+        return options.get(COMPACTION_OPTIMIZATION_INTERVAL);
+    }
+
+    @Nullable
+    public MemorySize compactionTotalSizeThreshold() {
+        return options.get(COMPACTION_TOTAL_SIZE_THRESHOLD);
+    }
+
+    @Nullable
+    public MemorySize compactionIncrementalSizeThreshold() {
+        return options.get(COMPACTION_INCREMENTAL_SIZE_THRESHOLD);
+    }
+
+    public int numSortedRunStopTrigger() {
+        Integer stopTrigger = options.get(NUM_SORTED_RUNS_STOP_TRIGGER);
+        if (stopTrigger == null) {
+            stopTrigger = MathUtils.addSafely(numSortedRunCompactionTrigger(), 3);
+        }
+        return Math.max(numSortedRunCompactionTrigger(), stopTrigger);
+    }
+
+    public int numLevels() {
+        // By default, this ensures that the compaction does not fall to level 0, but at least to
+        // level 1
+        Integer numLevels = options.get(NUM_LEVELS);
+        if (numLevels == null) {
+            numLevels = MathUtils.incrementSafely(numSortedRunCompactionTrigger());
+        }
+        return numLevels;
+    }
+
+    public boolean commitForceCompact() {
+        return options.get(COMMIT_FORCE_COMPACT);
+    }
+
+    public SequenceNumberInitMode writeSequenceNumberInitMode() {
+        return options.get(WRITE_SEQUENCE_NUMBER_INIT_MODE);
+    }
+
+    public boolean restCommitLockEnabled() {
+        return options.get(REST_COMMIT_LOCK_ENABLED);
+    }
+
+    public boolean restCommitAcquireLock() {
+        return options.get(REST_COMMIT_ACQUIRE_LOCK);
+    }
+
+    public long commitTimeout() {
+        return options.get(COMMIT_TIMEOUT) == null
+                ? Long.MAX_VALUE
+                : options.get(COMMIT_TIMEOUT).toMillis();
+    }
+
+    public long commitMinRetryWait() {
+        return options.get(COMMIT_MIN_RETRY_WAIT).toMillis();
+    }
+
+    public long commitMaxRetryWait() {
+        return options.get(COMMIT_MAX_RETRY_WAIT).toMillis();
+    }
+
+    public int commitMaxRetries() {
+        return options.get(COMMIT_MAX_RETRIES);
+    }
+
+    public int maxSizeAmplificationPercent() {
+        return options.get(COMPACTION_MAX_SIZE_AMPLIFICATION_PERCENT);
+    }
+
+    public boolean compactionForceUpLevel0() {
+        return options.get(COMPACTION_FORCE_UP_LEVEL_0);
+    }
+
+    public int sortedRunSizeRatio() {
+        return options.get(COMPACTION_SIZE_RATIO);
+    }
+
+    public int compactOffPeakStartHour() {
+        return options.get(COMPACT_OFFPEAK_START_HOUR);
+    }
+
+    public int compactOffPeakEndHour() {
+        return options.get(COMPACT_OFFPEAK_END_HOUR);
+    }
+
+    public int compactOffPeakRatio() {
+        return options.get(COMPACTION_OFFPEAK_RATIO);
+    }
+
+    public int compactionMinFileNum() {
+        return options.get(COMPACTION_MIN_FILE_NUM);
+    }
+
+    public int compactionFileNumLimit() {
+        return options.get(COMPACTION_FILE_NUM_LIMIT);
+    }
+
+    public double compactionDeleteRatioThreshold() {
+        return options.get(COMPACTION_DELETE_RATIO_THRESHOLD);
+    }
+
+    public long dynamicBucketTargetRowNum() {
+        return options.get(DYNAMIC_BUCKET_TARGET_ROW_NUM);
+    }
+
+    public ChangelogProducer changelogProducer() {
+        return options.get(CHANGELOG_PRODUCER);
+    }
+
+    public boolean needLookup() {
+        return lookupStrategy().needLookup;
+    }
+
+    public boolean manifestDeleteFileDropStats() {
+        return options.get(MANIFEST_DELETE_FILE_DROP_STATS);
+    }
+
+    public boolean disableNullToNotNull() {
+        return options.get(DISABLE_ALTER_COLUMN_NULL_TO_NOT_NULL);
+    }
+
+    public boolean disableExplicitTypeCasting() {
+        return options.get(DISABLE_EXPLICIT_TYPE_CASTING);
+    }
+
+    public boolean addColumnBeforePartition() {
+        return options.get(ADD_COLUMN_BEFORE_PARTITION);
+    }
+
+    public boolean indexFileInDataFileDir() {
+        return options.get(INDEX_FILE_IN_DATA_FILE_DIR);
+    }
+
+    public Path globalIndexExternalPath() {
+        String pathString = options.get(GLOBAL_INDEX_EXTERNAL_PATH);
+        if (pathString == null || pathString.isEmpty()) {
+            return null;
+        }
+        Path path = new Path(pathString);
+        String scheme = path.toUri().getScheme();
+        if (scheme == null) {
+            throw new IllegalArgumentException("scheme should not be null: " + path);
+        }
+        return path;
+    }
+
+    public GlobalIndexColumnUpdateAction globalIndexColumnUpdateAction() {
+        return options.get(GLOBAL_INDEX_COLUMN_UPDATE_ACTION);
+    }
+
+    public boolean ignoreIndexColumnUpdate() {
+        return globalIndexColumnUpdateAction() == GlobalIndexColumnUpdateAction.IGNORE;
+    }
+
+    public LookupStrategy lookupStrategy() {
+        return LookupStrategy.from(
+                mergeEngine().equals(MergeEngine.FIRST_ROW),
+                changelogProducer().equals(ChangelogProducer.LOOKUP),
+                deletionVectorsEnabled(),
+                options.get(FORCE_LOOKUP));
+    }
+
+    public boolean changelogProducerIgnoreUpdateBefore() {
+        return options.get(CHANGELOG_PRODUCER_IGNORE_UPDATE_BEFORE);
+    }
+
+    public boolean changelogProducerIgnoreDelete() {
+        return options.get(CHANGELOG_PRODUCER_IGNORE_DELETE);
+    }
+
+    public boolean changelogRowDeduplicate() {
+        return options.get(CHANGELOG_PRODUCER_ROW_DEDUPLICATE);
+    }
+
+    public List<String> changelogRowDeduplicateIgnoreFields() {
+        return options.getOptional(CHANGELOG_PRODUCER_ROW_DEDUPLICATE_IGNORE_FIELDS)
+                .map(
+                        s ->
+                                Arrays.stream(s.split(","))
+                                        .map(String::trim)
+                                        .collect(Collectors.toList()))
+                .orElse(Collections.emptyList());
+    }
+
+    public boolean tableReadSequenceNumberEnabled() {
+        return options.get(TABLE_READ_SEQUENCE_NUMBER_ENABLED);
+    }
+
+    public boolean scanPlanSortPartition() {
+        return options.get(SCAN_PLAN_SORT_PARTITION);
+    }
+
+    public StartupMode startupMode() {
+        StartupMode mode = options.get(SCAN_MODE);
+        if (mode == StartupMode.DEFAULT) {
+            if (options.getOptional(SCAN_TIMESTAMP_MILLIS).isPresent()
+                    || options.getOptional(SCAN_TIMESTAMP).isPresent()) {
+                return StartupMode.FROM_TIMESTAMP;
+            } else if (options.getOptional(SCAN_SNAPSHOT_ID).isPresent()
+                    || options.getOptional(SCAN_TAG_NAME).isPresent()
+                    || options.getOptional(SCAN_WATERMARK).isPresent()
+                    || options.getOptional(SCAN_VERSION).isPresent()) {
+                return StartupMode.FROM_SNAPSHOT;
+            } else if (options.getOptional(SCAN_FILE_CREATION_TIME_MILLIS).isPresent()) {
+                return StartupMode.FROM_FILE_CREATION_TIME;
+            } else if (options.getOptional(SCAN_CREATION_TIME_MILLIS).isPresent()) {
+                return StartupMode.FROM_CREATION_TIMESTAMP;
+            } else if (options.getOptional(INCREMENTAL_BETWEEN).isPresent()
+                    || options.getOptional(INCREMENTAL_BETWEEN_TIMESTAMP).isPresent()) {
+                return StartupMode.INCREMENTAL;
+            } else {
+                return StartupMode.LATEST_FULL;
+            }
+        } else if (mode == StartupMode.FULL) {
+            return StartupMode.LATEST_FULL;
+        } else {
+            return mode;
+        }
+    }
+
+    public Long scanTimestampMills() {
+        return options.get(SCAN_TIMESTAMP_MILLIS);
+    }
+
+    public String scanTimestamp() {
+        return options.get(SCAN_TIMESTAMP);
+    }
+
+    public Long scanWatermark() {
+        return options.get(SCAN_WATERMARK);
+    }
+
+    public Long scanFileCreationTimeMills() {
+        return options.get(SCAN_FILE_CREATION_TIME_MILLIS);
+    }
+
+    public Long scanCreationTimeMills() {
+        return options.get(SCAN_CREATION_TIME_MILLIS);
+    }
+
+    public Long scanBoundedWatermark() {
+        return options.get(SCAN_BOUNDED_WATERMARK);
+    }
+
+    public Long scanSnapshotId() {
+        return options.get(SCAN_SNAPSHOT_ID);
+    }
+
+    public String scanTagName() {
+        return options.get(SCAN_TAG_NAME);
+    }
+
+    public String scanVersion() {
+        return options.get(SCAN_VERSION);
+    }
+
+    public boolean scanIgnoreCorruptFile() {
+        return options.get(SCAN_IGNORE_CORRUPT_FILE);
+    }
+
+    public boolean scanIgnoreLostFile() {
+        return options.get(SCAN_IGNORE_LOST_FILE);
+    }
+
+    public Pair<String, String> incrementalBetween() {
+        String str = options.get(INCREMENTAL_BETWEEN);
+        String[] split = str.split(",");
+        if (split.length != 2) {
+            throw new IllegalArgumentException(
+                    "The incremental-between must specific start(exclusive) and end snapshot,"
+                            + " for example, 'incremental-between'='5,10' means changes between snapshot 5 and snapshot 10. But is: "
+                            + str);
+        }
+        return Pair.of(split[0], split[1]);
+    }
+
+    public String incrementalBetweenTimestamp() {
+        return options.get(INCREMENTAL_BETWEEN_TIMESTAMP);
+    }
+
+    public IncrementalBetweenScanMode incrementalBetweenScanMode() {
+        return options.get(INCREMENTAL_BETWEEN_SCAN_MODE);
+    }
+
+    public String incrementalToAutoTag() {
+        return options.get(INCREMENTAL_TO_AUTO_TAG);
+    }
+
+    public boolean incrementalBetweenTagToSnapshot() {
+        return options.get(INCREMENTAL_BETWEEN_TAG_TO_SNAPSHOT);
+    }
+
+    public Integer scanManifestParallelism() {
+        return options.get(SCAN_MANIFEST_PARALLELISM);
+    }
+
+    public Integer formatTableScanListParallelism() {
+        return options.get(FORMAT_TABLE_SCAN_LIST_PARALLELISM);
+    }
+
+    public Integer scanBucket() {
+        return options.get(SCAN_BUCKET);
+    }
+
+    public Duration streamingReadDelay() {
+        return options.get(STREAMING_READ_SNAPSHOT_DELAY);
+    }
+
+    public Integer dynamicBucketInitialBuckets() {
+        return options.get(DYNAMIC_BUCKET_INITIAL_BUCKETS);
+    }
+
+    public Integer dynamicBucketMaxBuckets() {
+        return options.get(DYNAMIC_BUCKET_MAX_BUCKETS);
+    }
+
+    public Integer dynamicBucketAssignerParallelism() {
+        return options.get(DYNAMIC_BUCKET_ASSIGNER_PARALLELISM);
+    }
+
+    public List<String> sequenceField() {
+        return options.getOptional(SEQUENCE_FIELD)
+                .map(
+                        s ->
+                                Arrays.stream(s.split(","))
+                                        .map(String::trim)
+                                        .collect(Collectors.toList()))
+                .orElse(Collections.emptyList());
+    }
+
+    public static List<String> blobField(Map<String, String> options) {
+        Set<String> fields = new LinkedHashSet<>();
+        addCommaSeparatedFields(fields, options.get(BLOB_FIELD.key()));
+        addCommaSeparatedFields(fields, options.get(VIDEO_FRAME_FIELD.key()));
+        return new ArrayList<>(fields);
+    }
+
+    private static void addCommaSeparatedFields(Set<String> fields, @Nullable String configured) {
+        if (configured == null) {
+            return;
+        }
+        Arrays.stream(configured.split(","))
+                .map(String::trim)
+                .filter(field -> !field.isEmpty())
+                .forEach(fields::add);
+    }
+
+    public static List<String> blobViewField(Map<String, String> options) {
+        String string = options.get(BLOB_VIEW_FIELD.key());
+        if (string == null) {
+            return Collections.emptyList();
+        }
+
+        return Arrays.stream(string.split(",")).map(String::trim).collect(Collectors.toList());
+    }
+
+    public boolean sequenceFieldSortOrderIsAscending() {
+        return options.get(SEQUENCE_FIELD_SORT_ORDER) == SortOrder.ASCENDING;
+    }
+
+    public boolean snapshotSequenceOrdering() {
+        return options.get(SEQUENCE_SNAPSHOT_ORDERING);
+    }
+
+    public Optional<String> rowkindField() {
+        return options.getOptional(ROWKIND_FIELD);
+    }
+
+    public boolean writeOnly() {
+        return options.get(WRITE_ONLY);
+    }
+
+    public boolean streamingReadOverwrite() {
+        return options.get(STREAMING_READ_OVERWRITE);
+    }
+
+    public boolean streamingReadAppendOverwrite() {
+        return options.get(STREAMING_READ_APPEND_OVERWRITE);
+    }
+
+    public boolean dynamicPartitionOverwrite() {
+        return options.get(DYNAMIC_PARTITION_OVERWRITE);
+    }
+
+    public Duration partitionExpireTime() {
+        return options.get(PARTITION_EXPIRATION_TIME);
+    }
+
+    public Duration partitionExpireCheckInterval() {
+        return options.get(PARTITION_EXPIRATION_CHECK_INTERVAL);
+    }
+
+    public int partitionExpireMaxNum() {
+        return options.get(PARTITION_EXPIRATION_MAX_NUM);
+    }
+
+    public boolean partitionExpireRetainLatest() {
+        return options.get(PARTITION_EXPIRATION_RETAIN_LATEST);
+    }
+
+    public int partitionExpireBatchSize() {
+        return options.getOptional(PARTITION_EXPIRATION_BATCH_SIZE)
+                .orElse(options.get(PARTITION_EXPIRATION_MAX_NUM));
+    }
+
+    public String partitionExpireStrategy() {
+        return options.get(PARTITION_EXPIRATION_STRATEGY);
+    }
+
+    public boolean compactionSkipExpiredPartitions() {
+        return options.get(COMPACTION_SKIP_EXPIRED_PARTITIONS);
+    }
+
+    @Nullable
+    public String dataFileExternalPaths() {
+        return options.get(DATA_FILE_EXTERNAL_PATHS);
+    }
+
+    public ExternalPathStrategy externalPathStrategy() {
+        return options.get(DATA_FILE_EXTERNAL_PATHS_STRATEGY);
+    }
+
+    @Nullable
+    public String externalSpecificFS() {
+        return options.get(DATA_FILE_EXTERNAL_PATHS_SPECIFIC_FS);
+    }
+
+    @Nullable
+    public int[] externalPathWeights() {
+        String weightsStr = options.get(DATA_FILE_EXTERNAL_PATHS_WEIGHTS);
+        if (weightsStr == null) {
+            return null;
+        }
+        String[] parts = weightsStr.split(",");
+        int[] weights = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            weights[i] = Integer.parseInt(parts[i].trim());
+            checkArgument(weights[i] > 0, "Weight must be positive, got: %s", weights[i]);
+        }
+        return weights;
+    }
+
+    public Boolean forceRewriteAllFiles() {
+        return options.get(COMPACTION_FORCE_REWRITE_ALL_FILES);
+    }
+
+    public String partitionTimestampFormatter() {
+        return options.get(PARTITION_TIMESTAMP_FORMATTER);
+    }
+
+    public String partitionTimestampPattern() {
+        return options.get(PARTITION_TIMESTAMP_PATTERN);
+    }
+
+    public boolean partitionTimestampFormatStrict() {
+        return options.get(PARTITION_TIMESTAMP_FORMAT_STRICT);
+    }
+
+    public String httpReportMarkDoneActionUrl() {
+        return options.get(PARTITION_MARK_DONE_ACTION_URL);
+    }
+
+    public String httpReportMarkDoneActionParams() {
+        return options.get(PARTITION_MARK_DONE_ACTION_PARAMS);
+    }
+
+    public String partitionMarkDoneCustomClass() {
+        return options.get(PARTITION_MARK_DONE_CUSTOM_CLASS);
+    }
+
+    public Set<PartitionMarkDoneAction> partitionMarkDoneActions() {
+        return Arrays.stream(options.get(PARTITION_MARK_DONE_ACTION).split(","))
+                .map(
+                        x ->
+                                PartitionMarkDoneAction.valueOf(
+                                        x.replace('-', '_').toUpperCase(Locale.ROOT)))
+                .collect(Collectors.toCollection(HashSet::new));
+    }
+
+    public String consumerId() {
+        String consumerId = options.get(CONSUMER_ID);
+        if (consumerId != null && consumerId.isEmpty()) {
+            throw new RuntimeException("consumer id cannot be empty string.");
+        }
+        return consumerId;
+    }
+
+    public boolean bucketAppendOrdered() {
+        return options.get(BUCKET_APPEND_ORDERED);
+    }
+
+    @Nullable
+    public Integer fullCompactionDeltaCommits() {
+        return options.get(FULL_COMPACTION_DELTA_COMMITS);
+    }
+
+    public Duration consumerExpireTime() {
+        return options.get(CONSUMER_EXPIRATION_TIME);
+    }
+
+    public boolean consumerIgnoreProgress() {
+        return options.get(CONSUMER_IGNORE_PROGRESS);
+    }
+
+    public boolean consumerChangelogOnly() {
+        return options.get(CONSUMER_CHANGELOG_ONLY) && changelogLifecycleDecoupled();
+    }
+
+    public boolean partitionedTableInMetastore() {
+        return options.get(METASTORE_PARTITIONED_TABLE);
+    }
+
+    @Nullable
+    public String tagToPartitionField() {
+        return options.get(METASTORE_TAG_TO_PARTITION);
+    }
+
+    public boolean tagCreateSuccessFile() {
+        return options.get(TAG_CREATE_SUCCESS_FILE);
+    }
+
+    public TagCreationMode tagToPartitionPreview() {
+        return options.get(METASTORE_TAG_TO_PARTITION_PREVIEW);
+    }
+
+    public TagCreationMode tagCreationMode() {
+        return options.get(TAG_AUTOMATIC_CREATION);
+    }
+
+    public TagCreationPeriod tagCreationPeriod() {
+        return options.get(TAG_CREATION_PERIOD);
+    }
+
+    public Duration tagCreationDelay() {
+        return options.get(TAG_CREATION_DELAY);
+    }
+
+    public TagPeriodFormatter tagPeriodFormatter() {
+        return options.get(TAG_PERIOD_FORMATTER);
+    }
+
+    public Optional<Duration> tagPeriodDuration() {
+        return options.getOptional(TAG_PERIOD_DURATION);
+    }
+
+    @Nullable
+    public Integer tagNumRetainedMax() {
+        return options.get(TAG_NUM_RETAINED_MAX);
+    }
+
+    public Duration tagDefaultTimeRetained() {
+        return options.get(TAG_DEFAULT_TIME_RETAINED);
+    }
+
+    public boolean tagTimeExpireEnabled() {
+        return options.get(TAG_TIME_EXPIRE_ENABLED);
+    }
+
+    public boolean tagAutomaticCompletion() {
+        return options.get(TAG_AUTOMATIC_COMPLETION);
+    }
+
+    public String tagBatchCustomizedName() {
+        return options.get(TAG_BATCH_CUSTOMIZED_NAME);
+    }
+
+    @Nullable
+    public Duration scanPlanAutoTagTimeRetained() {
+        return options.get(SCAN_PLAN_AUTO_TAG_FOR_READ_TIME_RETAINED);
+    }
+
+    public Duration snapshotWatermarkIdleTimeout() {
+        return options.get(SNAPSHOT_WATERMARK_IDLE_TIMEOUT);
+    }
+
+    public String sinkWatermarkTimeZone() {
+        return options.get(SINK_WATERMARK_TIME_ZONE);
+    }
+
+    public ZoneId sinkProcessTimeZone() {
+        String zoneId = options.get(SINK_PROCESS_TIME_ZONE);
+        return zoneId == null ? ZoneId.systemDefault() : ZoneId.of(zoneId);
+    }
+
+    public boolean forceCreatingSnapshot() {
+        return options.get(COMMIT_FORCE_CREATE_SNAPSHOT);
+    }
+
+    public Map<String, String> commitCallbacks() {
+        return callbacks(COMMIT_CALLBACKS, COMMIT_CALLBACK_PARAM);
+    }
+
+    public Map<String, String> tagCallbacks() {
+        return callbacks(TAG_CALLBACKS, TAG_CALLBACK_PARAM);
+    }
+
+    public boolean commitDiscardDuplicateFiles() {
+        return options.get(COMMIT_DISCARD_DUPLICATE_FILES);
+    }
+
+    private Map<String, String> callbacks(
+            ConfigOption<String> callbacks, ConfigOption<String> callbackParam) {
+        Map<String, String> result = new HashMap<>();
+        for (String className : options.get(callbacks).split(",")) {
+            className = className.trim();
+            if (className.isEmpty()) {
+                continue;
+            }
+
+            String originParamKey = callbackParam.key().replace("#", className);
+            String param = options.get(originParamKey);
+            if (param == null) {
+                param = options.get(originParamKey.toLowerCase(Locale.ROOT));
+            }
+            result.put(className, param);
+        }
+        return result;
+    }
+
+    public boolean localMergeEnabled() {
+        return options.get(LOCAL_MERGE_BUFFER_SIZE) != null;
+    }
+
+    public long localMergeBufferSize() {
+        return options.get(LOCAL_MERGE_BUFFER_SIZE).getBytes();
+    }
+
+    public Duration crossPartitionUpsertIndexTtl() {
+        return options.get(CROSS_PARTITION_UPSERT_INDEX_TTL);
+    }
+
+    public int crossPartitionUpsertBootstrapParallelism() {
+        return options.get(CROSS_PARTITION_UPSERT_BOOTSTRAP_PARALLELISM);
+    }
+
+    public int varTypeSize() {
+        return options.get(ZORDER_VAR_LENGTH_CONTRIBUTION);
+    }
+
+    public boolean deletionVectorsEnabled() {
+        return options.get(DELETION_VECTORS_ENABLED);
+    }
+
+    public boolean forceLookup() {
+        return options.get(FORCE_LOOKUP);
+    }
+
+    public boolean deletionVectorsMergeOnRead() {
+        return options.get(DELETION_VECTORS_MERGE_ON_READ);
+    }
+
+    public boolean batchScanSkipLevel0() {
+        if (deletionVectorsEnabled()) {
+            return !deletionVectorsMergeOnRead();
+        }
+        return mergeEngine() == FIRST_ROW;
+    }
+
+    public MemorySize dvIndexFileTargetSize() {
+        return options.get(DELETION_VECTOR_INDEX_FILE_TARGET_SIZE);
+    }
+
+    public boolean deletionVectorBitmap64() {
+        return options.get(DELETION_VECTOR_BITMAP64);
+    }
+
+    public boolean dataEvolutionCompactionSplitLargeFiles() {
+        return options.get(DATA_EVOLUTION_COMPACTION_SPLIT_LARGE_FILES);
+    }
+
+    public double dataEvolutionCompactionLargeFileRatio() {
+        double ratio = options.get(DATA_EVOLUTION_COMPACTION_LARGE_FILE_RATIO);
+        checkArgument(
+                Double.isFinite(ratio) && ratio >= 1.0d,
+                "The option %s must be finite and at least 1.0.",
+                DATA_EVOLUTION_COMPACTION_LARGE_FILE_RATIO.key());
+        return ratio;
+    }
+
+    public boolean dataEvolutionCompactionRewriteRowIds() {
+        return options.get(DATA_EVOLUTION_COMPACTION_REWRITE_ROW_IDS);
+    }
+
+    public FileIndexOptions indexColumnsOptions() {
+        return new FileIndexOptions(this);
+    }
+
+    public int fileIndexFormatVersion() {
+        int version = options.get(FILE_INDEX_FORMAT_VERSION);
+        if (version != 1 && version != 2) {
+            throw new IllegalArgumentException("file-index.format.version must be 1 or 2");
+        }
+        return version;
+    }
+
+    public long fileIndexInManifestThreshold() {
+        long bytes = options.get(FILE_INDEX_IN_MANIFEST_THRESHOLD).getBytes();
+        checkArgument(
+                bytes >= 0 && bytes <= Integer.MAX_VALUE,
+                "'%s' must be between 0 and %s bytes, but was %s bytes.",
+                FILE_INDEX_IN_MANIFEST_THRESHOLD.key(),
+                Integer.MAX_VALUE,
+                bytes);
+        return bytes;
+    }
+
+    public boolean fileIndexReadIgnoreUnknownType() {
+        return options.get(FILE_INDEX_READ_IGNORE_UNKNOWN_TYPE);
+    }
+
+    public boolean fileIndexReadEnabled() {
+        return options.get(FILE_INDEX_READ_ENABLED);
+    }
+
+    public boolean deleteForceProduceChangelog() {
+        return options.get(DELETION_FORCE_PRODUCE_CHANGELOG);
+    }
+
+    @Nullable
+    public Duration recordLevelExpireTime() {
+        return options.get(RECORD_LEVEL_EXPIRE_TIME);
+    }
+
+    @Nullable
+    public String recordLevelTimeField() {
+        return options.get(RECORD_LEVEL_TIME_FIELD);
+    }
+
+    public boolean rowTrackingEnabled() {
+        return options.get(ROW_TRACKING_ENABLED);
+    }
+
+    public boolean rowTrackingPartitionGroupOnCommit() {
+        return options.get(ROW_TRACKING_PARTITION_GROUP_ON_COMMIT);
+    }
+
+    public boolean dataEvolutionEnabled() {
+        return options.get(DATA_EVOLUTION_ENABLED);
+    }
+
+    public boolean dataEvolutionWriteColsOptimizationEnabled() {
+        return options.get(DATA_EVOLUTION_WRITE_COLS_OPTIMIZATION_ENABLED);
+    }
+
+    public boolean dataEvolutionNestedFieldEnabled() {
+        return options.get(DATA_EVOLUTION_NESTED_FIELD_ENABLED);
+    }
+
+    public long dataEvolutionReassignSkipContiguousRowCount() {
+        long threshold = options.get(DATA_EVOLUTION_REASSIGN_SKIP_CONTIGUOUS_ROW_COUNT);
+        checkArgument(
+                threshold >= 0,
+                "The option %s cannot be negative.",
+                DATA_EVOLUTION_REASSIGN_SKIP_CONTIGUOUS_ROW_COUNT.key());
+        return threshold;
+    }
+
+    public long dataEvolutionRowIdConflictRewriteMaxSize() {
+        return options.get(DATA_EVOLUTION_ROW_ID_CONFLICT_REWRITE_MAX_SIZE).getBytes();
+    }
+
+    public boolean dataEvolutionRowSidecarEnabled() {
+        return options.get(DATA_EVOLUTION_ROW_SIDECAR_ENABLED);
+    }
+
+    public long dataEvolutionRowSidecarMaxSelectedRows() {
+        long maxSelectedRows = options.get(DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTED_ROWS);
+        checkArgument(
+                maxSelectedRows > 0,
+                "The option %s must be greater than 0.",
+                DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTED_ROWS.key());
+        return maxSelectedRows;
+    }
+
+    public boolean dataEvolutionMergedReadStatsPushdownEnabled() {
+        return options.get(DATA_EVOLUTION_MERGED_READ_STATS_PUSHDOWN_ENABLED);
+    }
+
+    public double dataEvolutionRowSidecarMaxSelectionRatio() {
+        double maxSelectionRatio = options.get(DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTION_RATIO);
+        checkArgument(
+                maxSelectionRatio > 0 && maxSelectionRatio <= 1,
+                "The option %s must be in (0, 1].",
+                DATA_EVOLUTION_ROW_SIDECAR_MAX_SELECTION_RATIO.key());
+        return maxSelectionRatio;
+    }
+
+    public boolean dataEvolutionMergeIntoFilePruning() {
+        return options.get(DATA_EVOLUTION_MERGE_INTO_FILE_PRUNING);
+    }
+
+    public boolean dataEvolutionMergeIntoSourcePersist() {
+        return options.get(DATA_EVOLUTION_MERGE_INTO_SOURCE_PERSIST);
+    }
+
+    public boolean blobCompactionEnabled() {
+        return options.get(BLOB_COMPACTION_ENABLED);
+    }
+
+    public boolean prepareCommitWaitCompaction() {
+        if (!needLookup()) {
+            return false;
+        }
+
+        return options.get(LOOKUP_WAIT);
+    }
+
+    public LookupCompactMode lookupCompact() {
+        return options.get(LOOKUP_COMPACT);
+    }
+
+    public int lookupCompactMaxInterval() {
+        Integer maxInterval = options.get(LOOKUP_COMPACT_MAX_INTERVAL);
+        if (maxInterval == null) {
+            maxInterval = MathUtils.multiplySafely(numSortedRunCompactionTrigger(), 2);
+        }
+        return Math.max(numSortedRunCompactionTrigger(), maxInterval);
+    }
+
+    public boolean asyncFileWrite() {
+        return options.get(ASYNC_FILE_WRITE);
+    }
+
+    public boolean statsDenseStore() {
+        return options.get(METADATA_STATS_DENSE_STORE);
+    }
+
+    public int statsKeepFirstNColumns() {
+        return options.get(METADATA_STATS_KEEP_FIRST_N_COLUMNS);
+    }
+
+    public boolean dataFileThinMode() {
+        return options.get(DATA_FILE_THIN_MODE);
+    }
+
+    public boolean aggregationRemoveRecordOnDelete() {
+        return options.get(AGGREGATION_REMOVE_RECORD_ON_DELETE);
+    }
+
+    public Optional<Long> commitLastSafeSnapshot() {
+        return options.getOptional(COMMIT_LAST_SAFE_SNAPSHOT);
+    }
+
+    public boolean commitStrictModeEnabled() {
+        return options.get(COMMIT_STRICT_MODE_ENABLED);
+    }
+
+    /** @deprecated Use {@link #commitLastSafeSnapshot()}. */
+    @Deprecated
+    public Optional<Long> commitStrictModeLastSafeSnapshot() {
+        return commitLastSafeSnapshot();
+    }
+
+    public List<String> clusteringColumns() {
+        return clusteringColumns(options.get(CLUSTERING_COLUMNS));
+    }
+
+    public boolean clusteringIncrementalEnabled() {
+        return options.get(CLUSTERING_INCREMENTAL);
+    }
+
+    public boolean clusteringIncrementalOptimizeWrite() {
+        return options.get(CLUSTERING_INCREMENTAL_OPTIMIZE_WRITE);
+    }
+
+    public ClusteringIncrementalMode clusteringIncrementalMode() {
+        return options.get(CLUSTERING_INCREMENTAL_MODE);
+    }
+
+    public boolean bucketClusterEnabled() {
+        return !bucketAppendOrdered()
+                && !deletionVectorsEnabled()
+                && clusteringIncrementalEnabled();
+    }
+
+    public Duration clusteringHistoryPartitionIdleTime() {
+        return options.get(CLUSTERING_HISTORY_PARTITION_IDLE_TIME);
+    }
+
+    public int clusteringHistoryPartitionLimit() {
+        return options.get(CLUSTERING_HISTORY_PARTITION_LIMIT);
+    }
+
+    public OrderType clusteringStrategy(int columnSize) {
+        return clusteringStrategy(options.get(CLUSTERING_STRATEGY), columnSize);
+    }
+
+    public static List<String> clusteringColumns(String clusteringColumns) {
+        if (clusteringColumns == null || clusteringColumns.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(clusteringColumns.split(","))
+                .map(String::trim)
+                .collect(Collectors.toList());
+    }
+
+    public static OrderType clusteringStrategy(String clusteringStrategy, int columnSize) {
+        if (clusteringStrategy.equals(CLUSTERING_STRATEGY.defaultValue())) {
+            if (columnSize == 1) {
+                return ORDER;
+            } else if (columnSize < 5) {
+                return ZORDER;
+            } else {
+                return HILBERT;
+            }
+        } else {
+            return OrderType.of(clusteringStrategy);
+        }
+    }
+
+    public long lookupMergeBufferSize() {
+        return options.get(LOOKUP_MERGE_BUFFER_SIZE).getBytes();
+    }
+
+    public int lookupMergeRecordsThreshold() {
+        return options.get(LOOKUP_MERGE_RECORDS_THRESHOLD);
+    }
+
+    public boolean isChainTable() {
+        return options.get(CHAIN_TABLE_ENABLED);
+    }
+
+    public String scanFallbackSnapshotBranch() {
+        return options.get(SCAN_FALLBACK_SNAPSHOT_BRANCH);
+    }
+
+    public String scanFallbackDeltaBranch() {
+        return options.get(SCAN_FALLBACK_DELTA_BRANCH);
+    }
+
+    public List<String> chainTableChainPartitionKeys() {
+        String value = options.get(CHAIN_TABLE_CHAIN_PARTITION_KEYS);
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return Arrays.stream(value.split(",")).map(String::trim).collect(Collectors.toList());
+    }
+
+    public boolean chainTableStreamingMergeSnapshot() {
+        return options.get(CHAIN_TABLE_STREAMING_MERGE_SNAPSHOT);
+    }
+
+    public boolean chainTableKeyRangeSplitEnabled() {
+        return options.get(CHAIN_TABLE_KEY_RANGE_SPLIT_ENABLED);
+    }
+
+    public boolean formatTableImplementationIsPaimon() {
+        return options.get(FORMAT_TABLE_IMPLEMENTATION) == FormatTableImplementation.PAIMON;
+    }
+
+    public boolean formatTablePartitionOnlyValueInPath() {
+        return options.get(FORMAT_TABLE_PARTITION_ONLY_VALUE_IN_PATH);
+    }
+
+    public boolean blobAsDescriptor() {
+        return options.get(BLOB_AS_DESCRIPTOR);
+    }
+
+    public boolean blobWriteNullOnMissingFile() {
+        return options.get(BLOB_WRITE_NULL_ON_MISSING_FILE);
+    }
+
+    public boolean blobWriteNullOnFetchFailure() {
+        return options.get(BLOB_WRITE_NULL_ON_FETCH_FAILURE);
+    }
+
+    public boolean postponeBatchWriteFixedBucket() {
+        return options.get(POSTPONE_BATCH_WRITE_FIXED_BUCKET);
+    }
+
+    public boolean postponeMergeOnRead() {
+        return options.get(POSTPONE_MERGE_ON_READ);
+    }
+
+    public int postponeBatchWriteFixedBucketMaxParallelism() {
+        return options.get(POSTPONE_BATCH_WRITE_FIXED_BUCKET_MAX_PARALLELISM);
+    }
+
+    public int postponeBatchWriteFixedBucketRescaleLoadFactor() {
+        return options.get(POSTPONE_BATCH_WRITE_FIXED_BUCKET_RESCALE_LOAD_FACTOR);
+    }
+
+    public Optional<Integer> postponeDefaultBucketNum() {
+        Optional<Integer> bucketNum = options.getOptional(POSTPONE_DEFAULT_BUCKET_NUM);
+        bucketNum.ifPresent(
+                value ->
+                        checkArgument(
+                                value > 0,
+                                "Option '%s' must be greater than 0.",
+                                POSTPONE_DEFAULT_BUCKET_NUM.key()));
+        return bucketNum;
+    }
+
+    public Optional<Long> postponeTargetRowNumPerBucket() {
+        return options.getOptional(POSTPONE_TARGET_ROW_NUM_PER_BUCKET);
+    }
+
+    public long postponeTargetSizePerBucket() {
+        return options.get(POSTPONE_TARGET_SIZE_PER_BUCKET).getBytes();
+    }
+
+    public long globalIndexRowCountPerShard() {
+        return options.get(GLOBAL_INDEX_ROW_COUNT_PER_SHARD);
+    }
+
+    public boolean globalIndexEnabled() {
+        return options.get(GLOBAL_INDEX_ENABLED);
+    }
+
+    @Nullable
+    public GlobalIndexSearchMode globalIndexSearchMode() {
+        return options.get(GLOBAL_INDEX_SEARCH_MODE);
+    }
+
+    public GlobalIndexSearchMode scalarIndexSearchMode() {
+        return indexSearchMode(SCALAR_INDEX_SEARCH_MODE);
+    }
+
+    public boolean globalIndexFilterRefineFromData() {
+        return options.get(GLOBAL_INDEX_FILTER_REFINE_FROM_DATA);
+    }
+
+    public GlobalIndexSearchMode vectorIndexSearchMode() {
+        return indexSearchMode(VECTOR_INDEX_SEARCH_MODE);
+    }
+
+    public GlobalIndexSearchMode fullTextIndexSearchMode() {
+        return indexSearchMode(FULL_TEXT_INDEX_SEARCH_MODE);
+    }
+
+    private GlobalIndexSearchMode indexSearchMode(
+            ConfigOption<GlobalIndexSearchMode> familySearchMode) {
+        if (options.contains(familySearchMode)) {
+            return options.get(familySearchMode);
+        }
+        return options.getOptional(GLOBAL_INDEX_SEARCH_MODE)
+                .orElseGet(() -> options.get(familySearchMode));
+    }
+
+    public Integer globalIndexThreadNum() {
+        return options.get(GLOBAL_INDEX_THREAD_NUM);
+    }
+
+    public boolean overwriteUpgrade() {
+        return options.get(OVERWRITE_UPGRADE);
+    }
+
+    public boolean visibilityCallbackEnabled() {
+        return options.get(VISIBILITY_CALLBACK_ENABLED);
+    }
+
+    public Duration visibilityCallbackTimeout() {
+        return options.get(VISIBILITY_CALLBACK_TIMEOUT);
+    }
+
+    public Duration visibilityCallbackCheckInterval() {
+        return options.get(VISIBILITY_CALLBACK_CHECK_INTERVAL);
+    }
+
+    public String vectorFileFormatString() {
+        return normalizeFileFormat(options.get(VECTOR_FILE_FORMAT));
+    }
+
+    public boolean withVectorFormat() {
+        return options.contains(VECTOR_FILE_FORMAT);
+    }
+
+    public Set<String> vectorField() {
+        String vectorFields = options.get(CoreOptions.VECTOR_FIELD);
+        if (vectorFields == null || vectorFields.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(vectorFields.trim().split(",")).collect(Collectors.toSet());
+    }
+
+    public static Set<String> vectorField(Map<String, String> options) {
+        String vectorFields = options.getOrDefault(CoreOptions.VECTOR_FIELD.key(), null);
+        if (vectorFields == null || vectorFields.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(vectorFields.trim().split(",")).collect(Collectors.toSet());
+    }
+
+    public long vectorTargetFileSize() {
+        return options.getOptional(VECTOR_TARGET_FILE_SIZE)
+                .map(MemorySize::getBytes)
+                .orElse(targetFileSize(false));
+    }
+
+    public boolean vectorCompactionEnabled() {
+        return options.get(VECTOR_COMPACTION_ENABLED);
+    }
+
+    public boolean vectorSearchDistributeEnabled() {
+        return options.get(VECTOR_SEARCH_DISTRIBUTE_ENABLED);
+    }
+
+    public int vectorSearchLateralJoinBatchSize() {
+        return options.get(VECTOR_SEARCH_LATERAL_JOIN_BATCH_SIZE);
+    }
+
+    public int primaryKeyIndexBuildParallelism() {
+        int parallelism = options.get(PK_INDEX_BUILD_PARALLELISM);
+        checkArgument(
+                parallelism > 0,
+                "%s must be greater than zero, but is %s.",
+                PK_INDEX_BUILD_PARALLELISM.key(),
+                parallelism);
+        return parallelism;
+    }
+
+    public boolean fullTextIndexEnabled() {
+        return !fullTextIndexColumns().isEmpty();
+    }
+
+    public boolean fmIndexEnabled() {
+        return !fmIndexColumns().isEmpty();
+    }
+
+    public List<String> btreeIndexColumns() {
+        return globalIndexColumns("btree");
+    }
+
+    public List<String> bitmapIndexColumns() {
+        return globalIndexColumns("bitmap");
+    }
+
+    public List<String> multiValueIndexColumns() {
+        return globalIndexColumns("multivalue");
+    }
+
+    public List<String> fullTextIndexColumns() {
+        return globalIndexColumns("full-text");
+    }
+
+    public List<String> fmIndexColumns() {
+        return globalIndexColumns("fm");
+    }
+
+    public List<String> vectorIndexColumns(String type) {
+        return VectorIndexOptions.columns(options, type);
+    }
+
+    /** Index implementation identifiers declared with {@code global-index.<type>.index-columns}. */
+    public List<String> globalIndexTypes() {
+        String prefix = "global-index.";
+        return options.toMap().keySet().stream()
+                .filter(
+                        k ->
+                                k.startsWith(prefix)
+                                        && k.lastIndexOf('.') >= prefix.length()
+                                        && (k.endsWith(".index-columns")
+                                                || k.endsWith(".index-column")))
+                .map(k -> k.substring(prefix.length(), k.lastIndexOf('.')))
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    public static boolean isVectorIndexType(String type) {
+        return !Arrays.asList("btree", "bitmap", "multivalue", "full-text", "fm").contains(type);
+    }
+
+    public List<String> globalIndexColumns(String type) {
+        String columns = options.get("global-index." + type + ".index-columns");
+        if (columns == null) {
+            columns = options.get("global-index." + type + ".index-column");
+        }
+        if (columns == null) {
+            columns = options.get("pk-" + type + ".index.columns");
+        }
+        return indexColumns(columns);
+    }
+
+    private static List<String> indexColumns(@Nullable String columns) {
+        return columns == null
+                ? Collections.emptyList()
+                : Arrays.stream(columns.split(",", -1))
+                        .map(String::trim)
+                        .collect(Collectors.toList());
+    }
+
+    public String globalIndexColumnsOptionKey(String type) {
+        for (String suffix : Arrays.asList(".index-columns", ".index-column")) {
+            String key = "global-index." + type + suffix;
+            if (options.get(key) != null) {
+                return key;
+            }
+        }
+        String legacy = "pk-" + type + ".index.columns";
+        return options.get(legacy) != null ? legacy : "global-index." + type + ".index-columns";
+    }
+
+    /**
+     * Resolves implementation defaults and field overrides for either table mode.
+     *
+     * <p>The shared field JSON object takes precedence over the legacy JSON object. Short keys are
+     * qualified with the implementation's existing option prefix.
+     */
+    public Options globalIndexOptions(@Nullable String type, String column) {
+        Options resolved = new Options(options.toMap(), options);
+        if (type == null) {
+            return resolved;
+        }
+        boolean vector = isVectorIndexType(type);
+        String prefix = vector || "full-text".equals(type) ? type + "." : type + "-index.";
+        String fieldPrefix = "fields." + column + ".";
+        String sharedKey = fieldPrefix + "index-options";
+        boolean shared = options.get(sharedKey) != null;
+        String optionKey =
+                shared
+                        ? sharedKey
+                        : fieldPrefix + "pk-" + (vector ? "vector" : type) + ".index.options";
+        String serialized = options.get(optionKey);
+        if (serialized != null && !serialized.trim().isEmpty()) {
+            for (Map.Entry<String, String> entry :
+                    parseIndexOptions(serialized, optionKey, type).entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                checkArgument(
+                        key != null && !key.trim().isEmpty(),
+                        "%s contains an empty option key.",
+                        optionKey);
+                checkArgument(
+                        value != null, "%s value for key %s must not be null.", optionKey, key);
+                String qualified =
+                        key.startsWith(prefix) || key.startsWith("fields.") ? key : prefix + key;
+                String previous = resolved.get(qualified);
+                checkArgument(
+                        shared || previous == null || previous.equals(value),
+                        "%s defines conflicting values for %s.",
+                        optionKey,
+                        qualified);
+                resolved.setString(qualified, value);
+                if (vector && qualified.startsWith(prefix)) {
+                    String shortKey = qualified.substring(prefix.length());
+                    if (shared) {
+                        // Native vector implementations also accept the flat field syntax.
+                        resolved.setString(fieldPrefix + shortKey, value);
+                    }
+                }
+            }
+        }
+        return resolved;
+    }
+
+    private static LinkedHashMap<String, String> parseIndexOptions(
+            String serialized, String optionKey, String type) {
+        if (!optionKey.endsWith(".index-options")) {
+            try {
+                return JsonSerdeUtil.parseJsonMap(serialized, String.class);
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException(
+                        optionKey + " must be a JSON object of option key-value pairs.", e);
+            }
+        }
+        try {
+            JsonNode root = JsonSerdeUtil.OBJECT_MAPPER_INSTANCE.readTree(serialized);
+            checkArgument(
+                    root != null && root.isObject(),
+                    "%s must be a JSON object of option key-value pairs.",
+                    optionKey);
+            LinkedHashMap<String, String> parsed = new LinkedHashMap<>();
+            Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                checkArgument(
+                        !entry.getValue().isNull(),
+                        "%s value for key %s must not be null.",
+                        optionKey,
+                        entry.getKey());
+                if ("full-text".equals(type) && entry.getValue().isArray()) {
+                    List<String> values = new ArrayList<>();
+                    entry.getValue().forEach(value -> values.add(value.asText()));
+                    parsed.put(entry.getKey(), String.join(";", values));
+                } else {
+                    parsed.put(
+                            entry.getKey(),
+                            entry.getValue().isValueNode()
+                                    ? entry.getValue().asText()
+                                    : entry.getValue().toString());
+                }
+            }
+            return parsed;
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    optionKey + " must be a JSON object of option key-value pairs.", e);
+        }
+    }
+
+    public Options btreeIndexOptions(String column) {
+        return sortedIndexOptions(column, "btree");
+    }
+
+    public Options bitmapIndexOptions(String column) {
+        return sortedIndexOptions(column, "bitmap");
+    }
+
+    public Options multiValueIndexOptions(String column) {
+        return sortedIndexOptions(column, "multivalue");
+    }
+
+    public Options fmIndexOptions(String column) {
+        return sortedIndexOptions(column, "fm");
+    }
+
+    public Options fullTextIndexOptions(String column) {
+        Map<String, String> resolved = globalIndexOptions("full-text", column).toMap();
+        resolved.keySet().removeIf(key -> !key.startsWith("full-text."));
+        return new Options(resolved);
+    }
+
+    private Options sortedIndexOptions(String column, String type) {
+        Options resolved = globalIndexOptions(type, column);
+        resolved.remove("sorted-index.records-per-file");
+        resolved.remove("sorted-index.records-per-range");
+        return resolved;
+    }
+
+    /** Specifies the merge engine for table with primary key. */
+    public enum MergeEngine implements DescribedEnum {
+        DEDUPLICATE("deduplicate", "De-duplicate and keep the last row."),
+
+        PARTIAL_UPDATE("partial-update", "Partial update non-null fields."),
+
+        AGGREGATE("aggregation", "Aggregate fields with same primary key."),
+
+        FIRST_ROW("first-row", "De-duplicate and keep the first row.");
+
+        private final String value;
+        private final String description;
+
+        MergeEngine(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies the startup mode for log consumer. */
+    public enum StartupMode implements DescribedEnum {
+        DEFAULT(
+                "default",
+                "Determines actual startup mode according to other table properties. "
+                        + "If \"scan.timestamp-millis\" is set the actual startup mode will be \"from-timestamp\", "
+                        + "and if \"scan.snapshot-id\" or \"scan.tag-name\" is set the actual startup mode will be \"from-snapshot\". "
+                        + "Otherwise the actual startup mode will be \"latest-full\"."),
+
+        LATEST_FULL(
+                "latest-full",
+                "For streaming sources, produces the latest snapshot on the table upon first startup, "
+                        + "and continue to read the latest changes. "
+                        + "For batch sources, just produce the latest snapshot but does not read new changes."),
+
+        FULL("full", "Deprecated. Same as \"latest-full\"."),
+
+        LATEST(
+                "latest",
+                "For streaming sources, continuously reads latest changes "
+                        + "without producing a snapshot at the beginning. "
+                        + "For batch sources, behaves the same as the \"latest-full\" startup mode."),
+
+        LATEST_DELTA(
+                "latest-delta",
+                "For batch sources, reads newly changed files from the latest snapshot. "
+                        + "This mode does not search backwards for an APPEND snapshot, so a latest "
+                        + "COMPACT or OVERWRITE snapshot produces no records. Streaming sources are not supported."),
+
+        COMPACTED_FULL(
+                "compacted-full",
+                "For streaming sources, produces a snapshot after the latest compaction on the table "
+                        + "upon first startup, and continue to read the latest changes. "
+                        + "For batch sources, just produce a snapshot after the latest compaction "
+                        + "but does not read new changes. Snapshots of full compaction are picked "
+                        + "when scheduled full-compaction is enabled."),
+
+        FROM_TIMESTAMP(
+                "from-timestamp",
+                "For streaming sources, continuously reads changes "
+                        + "starting from timestamp specified by \"scan.timestamp-millis\", "
+                        + "without producing a snapshot at the beginning. "
+                        + "For batch sources, produces a snapshot at timestamp specified by \"scan.timestamp-millis\" "
+                        + "but does not read new changes."),
+
+        FROM_CREATION_TIMESTAMP(
+                "from-creation-timestamp",
+                "For streaming sources and batch sources, "
+                        + "If timestamp specified by \"scan.creation-time-millis\" is during in the range of earliest snapshot and latest snapshot: "
+                        + "mode is from-snapshot which snapshot is equal or later the timestamp. "
+                        + "If timestamp is earlier than earliest snapshot or later than latest snapshot, mode is from-file-creation-time."),
+
+        FROM_FILE_CREATION_TIME(
+                "from-file-creation-time",
+                "For streaming and batch sources, consumes a snapshot and filters the data files by creation time. "
+                        + "For streaming sources, upon first startup, and continue to read the latest changes."),
+
+        FROM_SNAPSHOT(
+                "from-snapshot",
+                "For streaming sources, continuously reads changes starting from snapshot "
+                        + "specified by \"scan.snapshot-id\", without producing a snapshot at the beginning. "
+                        + "For batch sources, produces a snapshot specified by \"scan.snapshot-id\" "
+                        + "or \"scan.tag-name\" but does not read new changes."),
+
+        FROM_SNAPSHOT_FULL(
+                "from-snapshot-full",
+                "For streaming sources, produces from snapshot specified by \"scan.snapshot-id\" "
+                        + "on the table upon first startup, and continuously reads changes. For batch sources, "
+                        + "produces a snapshot specified by \"scan.snapshot-id\" but does not read new changes."),
+
+        INCREMENTAL(
+                "incremental",
+                "Read incremental changes between start and end snapshot or timestamp.");
+
+        private final String value;
+        private final String description;
+
+        StartupMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies the sort order for field sequence id. */
+    public enum SortOrder implements DescribedEnum {
+        ASCENDING("ascending", "specifies sequence.field sort order is ascending."),
+
+        DESCENDING("descending", "specifies sequence.field sort order is descending.");
+
+        private final String value;
+        private final String description;
+
+        SortOrder(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies how to initialize the next sequence number for primary key table writers. */
+    public enum SequenceNumberInitMode implements DescribedEnum {
+        SCAN("scan", "initialize by scanning existing file metadata."),
+
+        SNAPSHOT(
+                "snapshot",
+                "initialize from the maximum sequence number recorded in snapshot properties, "
+                        + "which can avoid scanning existing file metadata in write-only mode.");
+
+        private final String value;
+        private final String description;
+
+        SequenceNumberInitMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies the changelog producer for table. */
+    public enum ChangelogProducer implements DescribedEnum {
+        NONE("none", "No changelog file."),
+
+        INPUT(
+                "input",
+                "Double write to a changelog file when flushing memory table, the changelog is from input."),
+
+        FULL_COMPACTION("full-compaction", "Generate changelog files with each full compaction."),
+
+        LOOKUP("lookup", "Generate changelog files through 'lookup' compaction.");
+
+        private final String value;
+        private final String description;
+
+        ChangelogProducer(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Initial snapshot mode for dedicated streaming compaction. */
+    public enum CompactionInitialScanMode implements DescribedEnum {
+        EARLIEST("earliest", "Read snapshots from the earliest available snapshot."),
+        LATEST("latest", "Read the latest snapshot as the initial full baseline.");
+
+        private final String value;
+        private final String description;
+
+        CompactionInitialScanMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Inner stream scan mode for some internal requirements. */
+    public enum StreamScanMode implements DescribedEnum {
+        NONE("none", "No requirement."),
+        COMPACT_BUCKET_TABLE("compact-bucket-table", "Compaction for traditional bucket table."),
+        FILE_MONITOR("file-monitor", "Monitor data file changes.");
+
+        private final String value;
+        private final String description;
+
+        StreamScanMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+
+        public String getValue() {
+            return value;
+        }
+    }
+
+    /** Inner batch scan mode for some internal requirements. */
+    public enum BatchScanMode implements DescribedEnum {
+        NONE("none", "No requirement."),
+        COMPACT("compact", "Compaction for batch mode.");
+
+        private final String value;
+        private final String description;
+
+        BatchScanMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+
+        public String getValue() {
+            return value;
+        }
+    }
+
+    /** Specifies this scan type for incremental scan . */
+    public enum IncrementalBetweenScanMode implements DescribedEnum {
+        AUTO(
+                "auto",
+                "Scan changelog files for the table which produces changelog files. Otherwise, scan newly changed files."),
+        DELTA("delta", "Scan newly changed files between snapshots."),
+        CHANGELOG("changelog", "Scan changelog files between snapshots."),
+        DIFF("diff", "Get diff by comparing data of end snapshot with data of start snapshot.");
+
+        private final String value;
+        private final String description;
+
+        IncrementalBetweenScanMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /**
+     * Set the default values of the {@link CoreOptions} via the given {@link Options}.
+     *
+     * @param options the options to set default values
+     */
+    public static void setDefaultValues(Options options) {
+        if (options.contains(SCAN_TIMESTAMP_MILLIS) && !options.contains(SCAN_MODE)) {
+            options.set(SCAN_MODE, StartupMode.FROM_TIMESTAMP);
+        }
+
+        if (options.contains(SCAN_TIMESTAMP) && !options.contains(SCAN_MODE)) {
+            options.set(SCAN_MODE, StartupMode.FROM_TIMESTAMP);
+        }
+
+        if (options.contains(SCAN_FILE_CREATION_TIME_MILLIS) && !options.contains(SCAN_MODE)) {
+            options.set(SCAN_MODE, StartupMode.FROM_FILE_CREATION_TIME);
+        }
+
+        if (options.contains(SCAN_SNAPSHOT_ID) && !options.contains(SCAN_MODE)) {
+            options.set(SCAN_MODE, StartupMode.FROM_SNAPSHOT);
+        }
+
+        if ((options.contains(INCREMENTAL_BETWEEN_TIMESTAMP)
+                        || options.contains(INCREMENTAL_BETWEEN)
+                        || options.contains(INCREMENTAL_TO_AUTO_TAG))
+                && !options.contains(SCAN_MODE)) {
+            options.set(SCAN_MODE, StartupMode.INCREMENTAL);
+        }
+    }
+
+    public static List<ConfigOption<?>> getOptions() {
+        final Field[] fields = CoreOptions.class.getFields();
+        final List<ConfigOption<?>> list = new ArrayList<>(fields.length);
+        for (Field field : fields) {
+            if (ConfigOption.class.isAssignableFrom(field.getType())) {
+                try {
+                    list.add((ConfigOption<?>) field.get(CoreOptions.class));
+                } catch (IllegalAccessException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        return list;
+    }
+
+    public static final Set<String> IMMUTABLE_OPTIONS =
+            Arrays.stream(CoreOptions.class.getFields())
+                    .filter(
+                            f ->
+                                    ConfigOption.class.isAssignableFrom(f.getType())
+                                            && f.getAnnotation(Immutable.class) != null)
+                    .map(
+                            f -> {
+                                try {
+                                    return ((ConfigOption<?>) f.get(CoreOptions.class)).key();
+                                } catch (IllegalAccessException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            })
+                    .collect(Collectors.toSet());
+
+    /** Specifies the sort engine for table with primary key. */
+    public enum SortEngine implements DescribedEnum {
+        MIN_HEAP("min-heap", "Use min-heap for multiway sorting."),
+        LOSER_TREE(
+                "loser-tree",
+                "Use loser-tree for multiway sorting. Compared with heapsort, loser-tree has fewer comparisons and is more efficient.");
+
+        private final String value;
+        private final String description;
+
+        SortEngine(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The mode for tag creation. */
+    public enum TagCreationMode implements DescribedEnum {
+        NONE("none", "No automatically created tags."),
+        PROCESS_TIME(
+                "process-time",
+                "Based on the time of the machine, create TAG once the processing time passes period time plus delay."),
+        WATERMARK(
+                "watermark",
+                "Based on the watermark of the input, create TAG once the watermark passes period time plus delay."),
+        BATCH(
+                "batch",
+                "In the batch processing scenario, the tag corresponding to the current snapshot is generated after the task is completed.");
+        private final String value;
+        private final String description;
+
+        TagCreationMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The period format options for tag creation. */
+    public enum TagPeriodFormatter implements DescribedEnum {
+        WITH_DASHES("with_dashes", "Dates and hours with dashes, e.g., 'yyyy-MM-dd HH'"),
+        WITHOUT_DASHES("without_dashes", "Dates and hours without dashes, e.g., 'yyyyMMdd HH'"),
+        WITHOUT_DASHES_AND_SPACES(
+                "without_dashes_and_spaces",
+                "Dates and hours without dashes and spaces, e.g., 'yyyyMMddHH'");
+
+        private final String value;
+        private final String description;
+
+        TagPeriodFormatter(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The period for tag creation. */
+    public enum TagCreationPeriod implements DescribedEnum {
+        DAILY("daily", "Generate a tag every day."),
+        HOURLY("hourly", "Generate a tag every hour."),
+        TWO_HOURS("two-hours", "Generate a tag every two hours.");
+
+        private final String value;
+        private final String description;
+
+        TagCreationPeriod(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The execution mode for expire. */
+    public enum ExpireExecutionMode implements DescribedEnum {
+        SYNC(
+                "sync",
+                "Execute expire synchronously. If there are too many files, it may take a long time and block stream processing."),
+        ASYNC(
+                "async",
+                "Execute expire asynchronously. If the generation of snapshots is greater than the deletion, there will be a backlog of files.");
+
+        private final String value;
+        private final String description;
+
+        ExpireExecutionMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies range strategy. */
+    public enum RangeStrategy {
+        SIZE,
+        QUANTITY
+    }
+
+    /** Specifies the log consistency mode for table. */
+    public enum ConsumerMode implements DescribedEnum {
+        EXACTLY_ONCE(
+                "exactly-once",
+                "Readers consume data at snapshot granularity, and strictly ensure that the snapshot-id recorded in the consumer is the snapshot-id + 1 that all readers have exactly consumed."),
+
+        AT_LEAST_ONCE(
+                "at-least-once",
+                "Each reader consumes snapshots at a different rate, and the snapshot with the slowest consumption progress among all readers will be recorded in the consumer.");
+
+        private final String value;
+        private final String description;
+
+        ConsumerMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Specifies the strategy for selecting external storage paths. */
+    public enum ExternalPathStrategy implements DescribedEnum {
+        NONE(
+                "none",
+                "Do not choose any external storage, data will still be written to the default warehouse path."),
+
+        SPECIFIC_FS(
+                "specific-fs",
+                "Select a specific file system as the external path. Currently supported are S3 and OSS."),
+
+        ROUND_ROBIN(
+                "round-robin",
+                "When writing a new file, a path is chosen from data-file.external-paths in turn."),
+
+        ENTROPY_INJECT(
+                "entropy-inject",
+                "When writing a new file, a path is chosen based on the hash value of the file's content."),
+
+        WEIGHTED(
+                "weight-robin",
+                "When writing a new file, a path is chosen based on configured weights.");
+
+        private final String value;
+
+        private final String description;
+
+        ExternalPathStrategy(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The time unit of materialized table freshness. */
+    public enum MaterializedTableIntervalFreshnessTimeUnit {
+        SECOND,
+        MINUTE,
+        HOUR,
+        DAY
+    }
+
+    /** The refresh mode of materialized table. */
+    public enum MaterializedTableRefreshMode {
+        /** The refresh pipeline will be executed in continuous mode. */
+        CONTINUOUS,
+
+        /** The refresh pipeline will be executed in full mode. */
+        FULL,
+
+        /**
+         * The refresh pipeline mode is determined by freshness of materialized table, either {@link
+         * #FULL} or {@link #CONTINUOUS}.
+         */
+        AUTOMATIC
+    }
+
+    /** The refresh status of materialized table. */
+    public enum MaterializedTableRefreshStatus {
+        INITIALIZING,
+        ACTIVATED,
+        SUSPENDED
+    }
+
+    /** Partition mark done actions. */
+    public enum PartitionMarkDoneAction {
+        SUCCESS_FILE("success-file"),
+        DONE_PARTITION("done-partition"),
+        MARK_EVENT("mark-event"),
+        HTTP_REPORT("http-report"),
+        CUSTOM("custom");
+
+        private final String value;
+
+        PartitionMarkDoneAction(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+    }
+
+    /** The order type of table sort. */
+    public enum OrderType {
+        ORDER("order"),
+        ZORDER("zorder"),
+        HILBERT("hilbert"),
+        NONE("none");
+
+        private final String orderType;
+
+        OrderType(String orderType) {
+            this.orderType = orderType;
+        }
+
+        @Override
+        public String toString() {
+            return "order type: " + orderType;
+        }
+
+        public static OrderType of(String orderType) {
+            if (ORDER.orderType.equalsIgnoreCase(orderType)) {
+                return ORDER;
+            } else if (ZORDER.orderType.equalsIgnoreCase(orderType)) {
+                return ZORDER;
+            } else if (HILBERT.orderType.equalsIgnoreCase(orderType)) {
+                return HILBERT;
+            } else if (NONE.orderType.equalsIgnoreCase(orderType)) {
+                return NONE;
+            }
+
+            throw new IllegalArgumentException("cannot match type: " + orderType + " for ordering");
+        }
+    }
+
+    /** The incremental clustering mode for append table. */
+    public enum ClusteringIncrementalMode implements DescribedEnum {
+        /**
+         * Perform a global range shuffle before sorting, so that rows with the same key range land
+         * in the same file. This produces globally ordered output but requires network shuffling.
+         */
+        GLOBAL_SORT(
+                "global-sort",
+                "Perform global range shuffle and then local sort. Output files are globally ordered but require network shuffling."),
+
+        /**
+         * Sort rows only within each compaction task (no global shuffle). Every output file is
+         * internally ordered by the clustering columns, which is sufficient for per-file Parquet
+         * lookup optimizations.
+         */
+        LOCAL_SORT(
+                "local-sort",
+                "Sort rows only within each compaction task without global shuffle. Every output file is internally ordered.");
+
+        private final String value;
+        private final String description;
+
+        ClusteringIncrementalMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** The compact mode for lookup compaction. */
+    public enum LookupCompactMode {
+        /**
+         * Lookup compaction will use ForceUpLevel0Compaction strategy to radically compact new
+         * files.
+         */
+        RADICAL,
+
+        /** Lookup compaction will use UniversalCompaction strategy to gently compact new files. */
+        GENTLE
+    }
+
+    /** Partition strategy for unaware bucket partitioned append only table. */
+    public enum PartitionSinkStrategy {
+        NONE,
+        HASH,
+        PARTITION_DYNAMIC
+    }
+
+    /** Specifies the implementation of format table. */
+    public enum FormatTableImplementation implements DescribedEnum {
+        PAIMON("paimon", "Paimon format table implementation."),
+        ENGINE("engine", "Engine format table implementation.");
+
+        private final String value;
+
+        private final String description;
+
+        FormatTableImplementation(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    public String fieldMergeMapTsField(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + MERGE_MAP_TS_FIELD)
+                        .stringType()
+                        .noDefaultValue());
+    }
+
+    public boolean fieldMergeMapOverwriteOnEqualTs(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + MERGE_MAP_OVERWRITE_ON_EQUAL_TS)
+                        .booleanType()
+                        .defaultValue(false)
+                        .withDescription(
+                                "For merge_map_with_keytime, overwrite the accumulated ROW with "
+                                        + "the input ROW when their timestamps are equal. "
+                                        + "This follows merge order, not wall-clock arrival order."));
+    }
+
+    public MapStorageLayout mapStorageLayout(String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX + "." + fieldName + "." + MAP_STORAGE_LAYOUT)
+                        .enumType(MapStorageLayout.class)
+                        .defaultValue(MapStorageLayout.DEFAULT));
+    }
+
+    public int mapSharedShreddingMaxColumns(String fieldName) {
+        int maxColumns =
+                options.get(
+                        key(FIELDS_PREFIX
+                                        + "."
+                                        + fieldName
+                                        + "."
+                                        + MAP_SHARED_SHREDDING_MAX_COLUMNS)
+                                .intType()
+                                .defaultValue(256));
+        checkArgument(maxColumns > 0, "options %s must > 0", MAP_SHARED_SHREDDING_MAX_COLUMNS);
+        return maxColumns;
+    }
+
+    public MapSharedShreddingColumnPlacementPolicy mapSharedShreddingColumnPlacementPolicy(
+            String fieldName) {
+        return options.get(
+                key(FIELDS_PREFIX
+                                + "."
+                                + fieldName
+                                + "."
+                                + MAP_SHARED_SHREDDING_COLUMN_PLACEMENT_POLICY)
+                        .enumType(MapSharedShreddingColumnPlacementPolicy.class)
+                        .defaultValue(MapSharedShreddingColumnPlacementPolicy.LRU));
+    }
+
+    /** MAP storage layout. */
+    public enum MapStorageLayout implements DescribedEnum {
+        DEFAULT(
+                "default",
+                "Store MAP columns with the normal key-value array layout. This is the compatible "
+                        + "layout used when no field-level MAP layout option is configured."),
+        SHARED_SHREDDING(
+                "shared-shredding",
+                "Store MAP<STRING, T> columns as a physical row with reusable value columns, a "
+                        + "field mapping, and an overflow map. This layout is intended for maps "
+                        + "whose string keys repeat across rows and can benefit from more columnar "
+                        + "storage.");
+
+        private final String value;
+        private final String description;
+
+        MapStorageLayout(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Physical column placement policy for shared-shredding MAP fields. */
+    public enum MapSharedShreddingColumnPlacementPolicy implements DescribedEnum {
+        PLAIN(
+                "plain",
+                "Keep each MAP row's input key order and place the first K keys into physical "
+                        + "columns."),
+        SEQUENTIAL(
+                "sequential",
+                "Order keys by their field dictionary IDs and place the first K keys into physical "
+                        + "columns."),
+        LRU(
+                "lru",
+                "Reuse physical columns for recently seen keys and evict the least recently used "
+                        + "column when necessary.");
+
+        private final String value;
+        private final String description;
+
+        MapSharedShreddingColumnPlacementPolicy(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Inference mode for Variant shredding schemas. */
+    public enum VariantShreddingInferenceMode implements DescribedEnum {
+        PER_FILE("per-file", "Infer every file independently from its own prefix rows."),
+        ADAPTIVE(
+                "adaptive",
+                "Reuse bounded inference evidence within one rolling writer and correct it with "
+                        + "a smaller prefix from each subsequent file.");
+
+        private final String value;
+        private final String description;
+
+        VariantShreddingInferenceMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /**
+     * Action to take when an UPDATE (e.g. via MERGE INTO) modifies columns that are covered by a
+     * global index.
+     */
+    public enum GlobalIndexColumnUpdateAction {
+        /** Updating indexed columns is forbidden. */
+        THROW_ERROR,
+
+        /** Drop all global index entries for the whole partitions affected by the update. */
+        DROP_PARTITION_INDEX,
+
+        /** Leave existing global index entries unchanged when indexed columns are updated. */
+        IGNORE
+    }
+
+    /** Search mode for global index queries. */
+    public enum GlobalIndexSearchMode implements DescribedEnum {
+        FAST("fast", "Only search indexed data."),
+        FULL(
+                "full",
+                "Use snapshot next row id and global index coverage to detect missing row ids, "
+                        + "and scan raw data only when a gap exists."),
+        DETAIL(
+                "detail",
+                "Scan data files to find exact unindexed rows. "
+                        + "This can handle index invalidation caused by updates or rewrites.");
+
+        private final String value;
+        private final String description;
+
+        GlobalIndexSearchMode(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+    }
+
+    /** Strategy for handling rows whose nested-key contains null values. */
+    public enum NestedKeyNullStrategy implements DescribedEnum {
+        MERGE(
+                "merge",
+                "Merge rows even if the nested-key contains null values, without enforcing primary key semantics."),
+
+        IGNORE(
+                "ignore",
+                "Ignore rows whose nested-key contains null values because they do not satisfy primary key semantics."),
+
+        ERROR(
+                "error",
+                "Throw an exception if the nested-key contains null values, because primary key fields must not be null.");
+
+        private final String value;
+        private final String description;
+
+        NestedKeyNullStrategy(String value, String description) {
+            this.value = value;
+            this.description = description;
+        }
+
+        @Override
+        public InlineElement getDescription() {
+            return text(description);
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+    }
+}
