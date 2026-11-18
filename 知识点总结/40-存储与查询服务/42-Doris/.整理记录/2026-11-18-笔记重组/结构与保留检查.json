@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-18",
+  "original_notes": 11,
+  "current_notes": 12,
+  "original_filenames_preserved": true,
+  "snapshot_hashes_verified": 11,
+  "internal_links_checked": 47,
+  "embedded_images_preserved": 2,
+  "current_embedded_images": 2,
+  "external_reference_urls_in_current_notes": 0,
+  "navigation_pages": 0,
+  "coverage_marker_checks": 69,
+  "issues": [],
+  "note_sizes": {
+    "01-Doris Colocation Group：建组、约束、重分布与验证.md": 2747,
+    "02-Doris Compaction：Rowset、Segment 与版本合并.md": 1563,
+    "03-Doris Compute Group 与 Colocation Group：资源隔离和本地 Join.md": 1374,
+    "04-Doris FE 元数据：存储内容与管理范围.md": 1453,
+    "05-Doris NULL 存储、向量化执行与 MySQL 执行模型对比.md": 2882,
+    "06-Doris Tablet 热点：形成原因、限制与治理方法.md": 2603,
+    "07-Doris Unique Key 表的 MOW 与部分列更新参数.md": 3550,
+    "08-Doris：数据模型、分区分桶与查询优化.md": 3743,
+    "09-Doris 分区变更：Bucket、分布键与副本数.md": 2783,
+    "10-Doris 分桶键选择与 Bucket 数量规划.md": 2351,
+    "11-Doris 查询优化：分区、分桶、模型、索引与 Colocation.md": 3523,
+    "12-UDF Jar 发布：共享依赖与 checksum 一致性.md": 1307
+  }
+}

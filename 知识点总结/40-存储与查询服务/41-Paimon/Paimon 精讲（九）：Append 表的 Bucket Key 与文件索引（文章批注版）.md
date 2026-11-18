@@ -69,7 +69,8 @@ bucket-key 只能做到 **bucket 层面**的过滤，无法直接做到 bucket �
 ---
 
 ## 2 . Bucket 内文件级过滤的优化手段
-
+
+
 
 > [!warning] 版本校准
 > 当前文档使用 Bloom Filter、Bitmap 和 Range Bitmap；旧文中的 BSI 选项应改查 `file-index.range-bitmap.columns`。索引是否支持组合谓词、Top-N 和具体字段类型随版本与引擎变化，应以实际文档和 `EXPLAIN` 为准。
@@ -154,7 +155,8 @@ CALL sys.compact(
 ---
 
 ## 3 . 是否可以对 bucket-key 字段再次构建索引
-
+
+
 
 > [!note] 批注：Bucket 裁剪与文件索引可以叠加，但解决的粒度不同
 > Bucket Key 先排除其他 Bucket；文件索引再排除候选 Bucket 内不可能命中的文件或数据块。是否值得重复建索引，取决于单个 Bucket 内文件数、Key 基数和实际查询选择性，不能只按字段身份判断。
@@ -278,7 +280,8 @@ TBLPROPERTIES (
 ---
 
 ## 5 . 写入性能影响评估与缓解方案
-
+
+
 
 > [!warning] 勘误：百分比必须用本表实测替换
 > 索引构建成本与行宽、类型、基数、文件大小、Flush/Compaction 频率和 CPU 有关。上线时记录相同数据量下的写入吞吐、Checkpoint 时长、Compaction backlog、索引大小和扫描字节，才能判断索引收益。
